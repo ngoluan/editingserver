@@ -1,0 +1,44 @@
+{
+  "projects": [
+    {
+      "id": "aiiptv",
+      "name": "AIIPTV",
+      "path": "/home/luanngo/aiiptv",
+      "combineScript": "/home/luanngo/server/aiiptv_combine-source.sh",
+      "combinedOutput": "/home/luanngo/server/aiiptv_combined-source.txt",
+      "patchDir": "/home/luanngo/server/patches"
+    },
+    {
+      "id": "oddjobs",
+      "name": "OddJobs",
+      "path": "/home/luanngo/oddjobs",
+      "combineScript": "/home/luanngo/server/oddjobs_combine.sh",
+      "combinedOutput": "/home/luanngo/server/oddjobs_combined-source.txt",
+      "patchDir": "/home/luanngo/server/patches"
+    },
+    {
+      "id": "canvasforge",
+      "name": "CanvasForge",
+      "path": "/home/luanngo/canvasforge",
+      "combineScript": "/home/luanngo/server/canvas_combine-source.sh",
+      "combinedOutput": "/home/luanngo/server/canvas_combined-source.txt",
+      "patchDir": "/home/luanngo/server/patches"
+    },
+    {
+      "id": "echo",
+      "name": "Echo",
+      "path": "/home/luanngo/echo/godot/echo-godot-phase1-14/echo-godot-phase1-14",
+      "combineScript": "/home/luanngo/server/echo_combine-src.sh",
+      "combinedOutput": "/home/luanngo/server/echo-combined-source.txt",
+      "patchDir": "/home/luanngo/server/patches"
+    },
+    {
+      "id": "opendoc",
+      "name": "OpenDoc",
+      "path": "/home/luanngo/opendoc",
+      "combineScript": "/home/luanngo/server/opendoc_combine-source.sh",
+      "combinedOutput": "/home/luanngo/server/opendoc_combined-source.txt",
+      "patchDir": "/home/luanngo/server/patches"
+    }
+  ]
+}

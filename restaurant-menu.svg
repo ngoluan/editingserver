@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="500" height="600" viewBox="0 0 500 600">
+  <defs>
+    <!-- Palm leaf -->
+    <path id="leaf1" d="M0,0 C20,-50 50,-100 70,-130 C90,-160 100,-180 100,-200 C100,-220 80,-240 60,-250 C30,-260 0,-250 0,-230 C0,-210 10,-190 20,-170 C30,-150 25,-130 30,-110 C35,-90 40,-70 40,-50"/>
+    
+    <!-- Fern leaf -->
+    <path id="leaf2" d="M0,0 C15,-40 35,-80 50,-110 C65,-140 75,-165 75,-190 C75,-215 60,-235 40,-245 C20,-255 5,-250 5,-230 C5,-210 15,-190 25,-175 C35,-160 40,-140 45,-120"/>
+  </defs>
+  
+  <!-- Background with subtle pattern -->
+  <rect width="500" height="600" fill="#f8f4e9"/>
+  
+  <!-- Main palm leaves -->
+  <use href="#leaf1" x="200" y="-100" transform="scale(0.5)"/>
+  <use href="#leaf1" x="200" y="-80" transform="scale(0.5) rotate(20)"/>
+  <use href="#leaf1" x="200" y="-40" transform="scale(0.5) rotate(45)"/>
+  <use href="#leaf1" x="200" y="-20" transform="scale(0.5) rotate(70)"/>
+  <use href="#leaf1" x="200" y="0" transform="scale(0.5) rotate(100)"/>
+  <use href="#leaf1" x="200" y="20" transform="scale(0.5) rotate(125)"/>
+  <use href="#leaf1" x="200" y="40" transform="scale(0.5) rotate(150)"/>
+  
+  <!-- Left side fern leaves -->
+  <use href="#leaf2" x="-85" y="-220"/>
+  <use href="#leaf2" x="-75" y="-200" transform="scale(0.6) rotate(10)"/>
+  <use href="#leaf2" x="-75" y="-140" transform="scale(0.6) rotate(30)"/>
+  <use href="#leaf2" x="-75" y="-80" transform="scale(0.6) rotate(55)"/>
+  
+  <!-- Right side fern leaves -->
+  <use href="#leaf2" x="185" y="-210" transform="scale(0.6)"/>
+  <use href="#leaf2" x="195" y="-190" transform="scale(0.6) rotate(-15)"/>
+  <use href="#leaf2" x="195" y="-100" transform="scale(0.6) rotate(-35)"/>
+  <use href="#leaf2" x="195" y="-40" transform="scale(0.6) rotate(-55)"/>
+  
+  <!-- Central palm stem -->
+  <ellipse cx="200" cy="80" rx="12" ry="40" fill="#5c7c56"/>
+  
+  <!-- Decorative vines along sides -->
+  <path d="M50,80 Q30,150 20,220 Q15,300 18,400 Q25,500 35,550" stroke="#4a6a46" stroke-width="2" fill="none" mask="url(#vineMask)"/>
+  <path d="M450,80 Q470,150 480,220 Q485,300 482,400 Q475,500 465,550" stroke="#4a6a46" stroke-width="2" fill="none" mask="url(#vineMask)"/>
+  
+  <!-- Leaves with vine masking -->
+  <path d="M50,80 Z M50,150 Z M30,220 Z M20,300 Z M18,400 Z M25,500 Z M35,550 Z" fill="#5c7c56"/>
+  <path d="M450,80 Z M470,150 Z M480,220 Z M485,300 Z M482,400 Z M475,500 Z M465,550 Z" fill="#5c7c56"/>
+  
+  <!-- Sun highlights -->
+  <circle cx="100" cy="100" r="60" fill="url(#sunGradient)" opacity="0.2"/>
+  <circle cx="400" cy="100" r="60" fill="url(#sunGradient)" opacity="0.2"/>
+  <circle cx="250" cy="60" r="80" fill="url(#sunGradient)" opacity="0.25"/>
+  
+  <!-- Menu title area placeholder -->
+  <text x="250" y="160" font-family="Georgia, serif" font-size="28" font-weight="bold" text-anchor="middle" fill="#2d4a2d">Menu</text>
+  
+  <!-- Elegant leaf border -->
+  <path d="M25,600 Q125,580 225,600 T475,600" stroke="#5c7c56" stroke-width="3" fill="none"/>
+  <circle cx="25" cy="600" r="10" fill="#5c7c56"/>
+  <circle cx="475" cy="600" r="10" fill="#5c7c56"/>
+  <circle cx="250" cy="600" r="12" fill="#5c7c56"/>
+  
+  <!-- Decorative dots along bottom -->
+  <circle cx="75" cy="595" r="5" fill="#5c7c56"/>
+  <circle cx="125" cy="595" r="5" fill="#5c7c56"/>
+  <circle cx="175" cy="595" r="5" fill="#5c7c56"/>
+  <circle cx="225" cy="595" r="5" fill="#5c7c56"/>
+  <circle cx="275" cy="595" r="5" fill="#5c7c56"/>
+  <circle cx="325" cy="595" r="5" fill="#5c7c56"/>
+  <circle cx="375" cy="595" r="5" fill="#5c7c56"/>
+  <circle cx="425" cy="595" r="5" fill="#5c7c56"/>
+  <circle cx="475" cy="595" r="5" fill="#5c7c56"/>
+  
+  <!-- Menu divider -->
+  <rect x="0" y="560" width="500" height="2" fill="#5c7c56"/>
+  
+  <!-- Style text -->
+  <text x="250" y="530" font-family="Georgia, serif" font-size="14" text-anchor="middle" fill="#6b8b6b" font-style="italic">Farm Fresh • Organic • Heirloom</text>
+</svg>

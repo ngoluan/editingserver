@@ -1,0 +1,39 @@
+{
+  "name": "openword",
+  "version": "1.0.0",
+  "description": "OpenWord - HTML Document Editor (Express + Puppeteer PDF export)",
+  "private": true,
+  "main": "server.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "vite",
+    "dev:server": "node server.js",
+    "dev:all": "node server.js & vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "multer": "^2.0.2",
+    "puppeteer": "^23.10.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "eslint": "^9.18.0",
+    "jsdom": "^29.1.1",
+    "nodemon": "^3.1.9",
+    "prettier": "^3.4.2",
+    "vite": "^8.1.2",
+    "vitest": "^4.1.9"
+  }
+}

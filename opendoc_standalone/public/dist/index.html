@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="OpenWord">
+    <meta name="theme-color" content="#2b579a">
+    <link rel="manifest" href="/assets/manifest-DvRawO6v.json">
+    <title>OpenWord - Phase 9 (Complete)</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&family=Open+Sans:wght@400;700&family=Lato:wght@400;700&family=Montserrat:wght@400;700&family=Merriweather:wght@400;700&family=Playfair+Display:wght@400;700&family=Source+Sans+Pro:wght@400;700&display=swap" rel="stylesheet">
+  <script type="module" crossorigin src="/assets/index-BsV1uhpH.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-DgD6u7O6.css">
+</head>
+<body>
+
+    <div class="toolbar ribbon">
+
+        <!-- Layer 1: App/Document bar -->
+        <div class="ribbon-bar">
+            <button id="btn-toolbar-toggle" class="mobile-only" title="Toggle Toolbar">
+                <i data-lucide="menu"></i>
+            </button>
+            <button id="btn-docs" class="ribbon-docs-btn docs-icon-only" title="Open documents" aria-label="Open documents">
+                <i data-lucide="folder-open"></i>
+                <i data-lucide="chevron-down" class="docs-chevron"></i>
+            </button>
+            <span id="doc-title-display" contenteditable="true" class="doc-title">Untitled</span>
+            <span id="save-indicator" class="save-indicator">Saved</span>
+            <span class="ribbon-bar-sep"></span>
+            <button id="btn-save" class="ribbon-bar-btn" title="Save (Ctrl+S)"><i data-lucide="save"></i></button>
+            <button id="btn-undo" class="ribbon-bar-btn" title="Undo (Ctrl+Z)"><i data-lucide="undo-2"></i></button>
+            <button id="btn-redo" class="ribbon-bar-btn" title="Redo (Ctrl+Y)"><i data-lucide="redo-2"></i></button>
+            <span class="ribbon-bar-spacer"></span>
+            <button class="ribbon-toggle" id="ribbon-toggle" title="Collapse the Ribbon">
+                <i data-lucide="chevron-up"></i>
+            </button>
+        </div>
+
+        <!-- Layer 2: Ribbon tabs -->
+        <div class="ribbon-tab-row">
+            <span class="ribbon-tab active" data-tab="home">Home</span>
+            <span class="ribbon-tab" data-tab="insert">Insert</span>
+            <span class="ribbon-tab" data-tab="layout">Layout</span>
+            <span class="ribbon-tab" data-tab="references">References</span>
+            <span class="ribbon-tab" data-tab="review">Review</span>
+            <span class="ribbon-tab" data-tab="view">View</span>
+        </div>
+
+        <!-- Layer 3: Active ribbon commands (collapsible) -->
+        <div class="ribbon-body" id="ribbon-body">
+            <!-- ──── Home tab ──── -->
+            <div class="ribbon-panel active" data-panel="home">
+                <div class="ribbon-group">
+                    <span class="ribbon-group-label">Clipboard</span>
+                    <div class="ribbon-group-buttons">
+                        <button id="btn-format-painter" title="Format Painter"><i data-lucide="paintbrush"></i></button>
+                        <button id="btn-manage-styles" title="Manage named styles"><i data-lucide="palette"></i></button>
+                        <button id="btn-clear-fmt" title="Clear Formatting"><i data-lucide="remove-formatting"></i></button>
+                    </div>
+                </div>
+                <div class="ribbon-group">
+                    <span class="ribbon-group-label">Font</span>
+                    <div class="ribbon-group-buttons">
+                        <select id="sel-font" title="Font Family" class="ribbon-font-sel">
+                            <option value="Segoe UI">Segoe UI</option>
+                            <option value="Arial">Arial</option>
+                            <option value="Calibri">Calibri</option>
+                            <option value="Verdana">Verdana</option>
+                            <option value="Georgia">Georgia</option>
+                            <option value="Times New Roman">Times New Roman</option>
+                            <option value="Garamond">Garamond</option>
+                            <option value="Tahoma">Tahoma</option>
+                            <option value="Trebuchet MS">Trebuchet MS</option>
+                            <option value="Courier New">Courier New</option>
+                            <option value="Comic Sans MS">Comic Sans MS</option>
+                            <option value="Impact">Impact</option>
+                            <option value="Roboto">Roboto</option>
+                            <option value="Open Sans">Open Sans</option>
+                            <option value="Lato">Lato</option>
+                            <option value="Montserrat">Montserrat</option>
+                            <option value="Merriweather">Merriweather</option>
+                            <option value="Playfair Display">Playfair Display</option>
+                            <option value="Source Sans Pro">Source Sans Pro</option>
+                        </select>
+                        <select id="sel-font-size" title="Font Size" class="ribbon-font-sel">
+                            <option value="8">8</option>
+                            <option value="9">9</option>
+                            <option value="10">10</option>
+                            <option value="11">11</option>
+                            <option value="12" selected>12</option>
+                            <option value="14">14</option>
+                            <option value="16">16</option>
+                            <option value="18">18</option>
+                            <option value="20">20</option>
+                            <option value="22">22</option>
+                            <option value="24">24</option>
+                            <option value="26">26</option>
+                            <option value="28">28</option>
+                            <option value="36">36</option>
+                            <option value="48">48</option>
+                            <option value="72">72</option>
+                        </select>
+                        <button id="btn-bold" title="Bold (Ctrl+B)"><i data-lucide="bold"></i></button>
+                        <button id="btn-italic" title="Italic (Ctrl+I)"><i data-lucide="italic"></i></button>
+                        <button id="btn-underline" title="Underline (Ctrl+U)"><i data-lucide="underline"></i></button>
+                        <button id="btn-strikethrough" title="Strikethrough"><i data-lucide="strikethrough"></i></button>
+                        <button id="btn-superscript" title="Superscript (Ctrl+Shift+>)">x<sup>2</sup></button>
+                        <button id="btn-subscript" title="Subscript">x<sub>2</sub></button>
+                        <button id="btn-code" title="Inline Code (Ctrl+Shift+`)"><code>&lt;/&gt;</code></button>
+                    </div>
+                </div>
+                <div class="ribbon-group">
+                    <span class="ribbon-group-label">Paragraph</span>
+                    <div class="ribbon-group-buttons">
+                        <button id="btn-ul" title="Bullet List"><i data-lucide="list"></i></button>
+                        <button id="btn-ol" title="Numbered List"><i data-lucide="list-ordered"></i></button>
+                        <button id="btn-indent-dec" title="Decrease Indent"><i data-lucide="arrow-left-to-line"></i></button>
+                        <button id="btn-indent-inc" title="Increase Indent"><i data-lucide="arrow-right-to-line"></i></button>
+                        <span class="btn-sep"></span>
+                        <button id="btn-align-left" title="Align Left"><i data-lucide="align-left"></i></button>
+                        <button id="btn-align-center" title="Align Center"><i data-lucide="align-center"></i></button>
+                        <button id="btn-align-right" title="Align Right"><i data-lucide="align-right"></i></button>
+                        <button id="btn-align-justify" title="Justify"><i data-lucide="align-justify"></i></button>
+                    </div>
+                </div>
+                <div class="ribbon-group">
+                    <span class="ribbon-group-label">Colors</span>
+                    <div class="ribbon-group-buttons">
+                        <button class="ribbon-color-btn" title="Text Color">
+                            <span class="ribbon-color-label">A</span>
+                            <input type="color" id="inp-text-color" value="#000000" class="ribbon-color-input">
+                        </button>
+                        <button class="ribbon-color-btn" title="Highlight Color">
+                            <i data-lucide="highlighter"></i>
+                            <input type="color" id="inp-highlight-color" value="#ffff00" class="ribbon-color-input">
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ──── Insert tab ──── -->
+            <div class="ribbon-panel" data-panel="insert">
+                <div class="ribbon-group">
+                    <span class="ribbon-group-label">Elements</span>
+                    <div class="ribbon-group-buttons">
+                        <button id="btn-table" title="Insert Table"><i data-lucide="table"></i>Table</button>
+                        <button id="btn-page-break" title="Insert Page Break"><i data-lucide="file-minus"></i>Page Br.</button>
+                        <button id="btn-toc" title="Table of Contents"><i data-lucide="list-tree"></i>TOC</button>
+                    </div>
+                </div>
+                <div class="ribbon-group">
+                    <span class="ribbon-group-label">Media</span>
+                    <div class="ribbon-group-buttons">
+                        <button id="btn-img-inline" title="Insert Image"><i data-lucide="image"></i>Image</button>
+                        <button id="btn-box-text" title="Insert Text Box"><i data-lucide="square"></i>Text Box</button>
+                    </div>
+                </div>
+                <div class="ribbon-group">
+                    <span class="ribbon-group-label">Links</span>
+                    <div class="ribbon-group-buttons">
+                        <button id="btn-link" title="Insert Link (Ctrl+K)"><i data-lucide="link"></i>Link</button>
+                    </div>
+                </div>
+                <input type="file" id="inp-image-upload" accept="image/*" style="display:none">
+            </div>
+
+            <!-- ──── Layout tab ──── -->
+            <div class="ribbon-panel" data-panel="layout">
+                <div class="ribbon-group">
+                    <span class="ribbon-group-label">Style</span>
+                    <div class="ribbon-group-buttons">
+                        <select id="sel-block-style" title="Text Style">
+                            <option value="normal">Normal</option>
+                            <option value="h1">Heading 1</option>
+                            <option value="h2">Heading 2</option>
+                            <option value="h3">Heading 3</option>
+                            <option value="h4">Heading 4</option>
+                            <option value="h5">Heading 5</option>
+                            <option value="h6">Heading 6</option>
+                            <option value="quote">Quote</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="ribbon-group">
+                    <span class="ribbon-group-label">Spacing</span>
+                    <div class="ribbon-group-buttons">
+                        <select id="sel-line-height" title="Line Height">
+                            <option value="1.0">1.0</option>
+                            <option value="1.15" selected>1.15</option>
+                            <option value="1.5">1.5</option>
+                            <option value="2.0">2.0</option>
+                        </select>
+                        <select id="sel-space-before" title="Space Before">
+                            <option value="0">0 pt</option>
+                            <option value="6">6 pt</option>
+                            <option value="12" selected>12 pt</option>
+                            <option value="18">18 pt</option>
+                            <option value="24">24 pt</option>
+                            <option value="36">36 pt</option>
+                        </select>
+                        <select id="sel-space-after" title="Space After">
+                            <option value="0">0 pt</option>
+                            <option value="6">6 pt</option>
+                            <option value="12" selected>12 pt</option>
+                            <option value="18">18 pt</option>
+                            <option value="24">24 pt</option>
+                            <option value="36">36 pt</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="ribbon-group">
+                    <span class="ribbon-group-label">Page Setup</span>
+                    <div class="ribbon-group-buttons">
+                        <button id="btn-page-setup" title="Page Setup"><i data-lucide="settings"></i>Page Setup</button>
+                        <button id="btn-insert-section-break" title="Insert section break"><i data-lucide="between-horizontal-start"></i>Section</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ──── References tab ──── -->
+            <div class="ribbon-panel" data-panel="references">
+                <div class="ribbon-group">
+                    <span class="ribbon-group-label">Table of Contents</span>
+                    <div class="ribbon-group-buttons">
+                        <button id="btn-toc-ref" title="Insert Table of Contents"><i data-lucide="list-tree"></i>Insert TOC</button>
+                    </div>
+                </div>
+                <div class="ribbon-group">
+                    <span class="ribbon-group-label">Footnotes</span>
+                    <div class="ribbon-group-buttons">
+                        <button id="btn-footnote" title="Insert Footnote"><i data-lucide="corner-down-right"></i>Insert Footnote</button>
+                        <button id="btn-endnote" title="Insert Endnote"><i data-lucide="sticky-note"></i>Insert Endnote</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ──── Review tab ──── -->
+            <div class="ribbon-panel" data-panel="review">
+                <div class="ribbon-group">
+                    <span class="ribbon-group-label">Find</span>
+                    <div class="ribbon-group-buttons">
+                        <button id="btn-find" title="Find (Ctrl+F)"><i data-lucide="search"></i>Find</button>
+                    </div>
+                </div>
+                <div class="ribbon-group">
+                    <span class="ribbon-group-label">Tracking</span>
+                    <div class="ribbon-group-buttons">
+                        <button id="btn-track-changes" title="Track Changes"><i data-lucide="diff"></i>Track Changes</button>
+                        <button id="btn-add-comment" title="Add comment"><i data-lucide="message-square-plus"></i>Comment</button>
+                        <button id="btn-accept-all" title="Accept All Changes"><i data-lucide="check-check"></i>Accept All</button>
+                        <button id="btn-reject-all" title="Reject All Changes"><i data-lucide="x-circle"></i>Reject All</button>
+                    </div>
+                </div>
+                <div class="ribbon-group">
+                    <span class="ribbon-group-label">Document</span>
+                    <div class="ribbon-group-buttons">
+                        <button id="btn-print" title="Print (Ctrl+P)"><i data-lucide="printer"></i>Print</button>
+                        <button id="btn-exp-pdf" title="Export PDF"><i data-lucide="file-text"></i>PDF</button>
+                        <button id="btn-import-docx" title="Import DOCX"><i data-lucide="file-input"></i>Import</button>
+                        <button id="btn-export-docx" title="Export DOCX"><i data-lucide="file-output"></i>Export</button>
+                        <input type="file" id="inp-docx-import" accept=".docx" style="display:none">
+                    </div>
+                </div>
+            </div>
+
+            <!-- ──── View tab ──── -->
+            <div class="ribbon-panel" data-panel="view">
+                <div class="ribbon-group">
+                    <span class="ribbon-group-label">Views</span>
+                    <div class="ribbon-group-buttons">
+                        <button id="btn-view-page" title="Page Layout"><i data-lucide="layout-panel-left"></i>Page</button>
+                        <button id="btn-view-web" title="Web Layout"><i data-lucide="layout-list"></i>Web</button>
+                    </div>
+                </div>
+                <div class="ribbon-group">
+                    <span class="ribbon-group-label">Show</span>
+                    <div class="ribbon-group-buttons">
+                        <button id="btn-toggle-outline" title="Toggle Outline"><i data-lucide="list"></i></button>
+                        <button id="btn-toggle-ruler" title="Toggle Ruler"><i data-lucide="ruler"></i></button>
+                    </div>
+                </div>
+                <div class="ribbon-group">
+                    <span class="ribbon-group-label">Split</span>
+                    <div class="ribbon-group-buttons">
+                        <button id="btn-split-view" title="Split View"><i data-lucide="columns-2"></i>Split</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ──── Contextual groups ──── -->
+            <div class="ribbon-group contextual contextual-text-selection hidden">
+                <span class="ribbon-group-label">Link</span>
+                <div class="ribbon-group-buttons">
+                    <button id="ctx-btn-link" title="Insert Link (Ctrl+K)"><i data-lucide="link"></i></button>
+                </div>
+            </div>
+
+            <div class="ribbon-group contextual contextual-list hidden">
+                <span class="ribbon-group-label">List</span>
+                <div class="ribbon-group-buttons">
+                    <button id="ctx-btn-indent-dec" title="Outdent"><i data-lucide="arrow-left-to-line"></i></button>
+                    <button id="ctx-btn-indent-inc" title="Indent"><i data-lucide="arrow-right-to-line"></i></button>
+                    <button id="ctx-btn-ul" title="Bullet List"><i data-lucide="list"></i></button>
+                    <button id="ctx-btn-ol" title="Numbered List"><i data-lucide="list-ordered"></i></button>
+                    <button id="ctx-btn-toggle-list-type" title="Toggle List Type">&harr;</button>
+                    <button id="ctx-btn-list-to-text" title="Convert to Text"><i data-lucide="text"></i></button>
+                </div>
+            </div>
+
+            <div class="ribbon-group contextual contextual-image hidden">
+                <span class="ribbon-group-label">Image</span>
+                <div class="ribbon-group-buttons">
+                    <button class="active" id="ctx-btn-align-left" title="Align Left"><i data-lucide="align-left"></i></button>
+                    <button id="ctx-btn-align-center" title="Align Center"><i data-lucide="align-center"></i></button>
+                    <button id="ctx-btn-align-right" title="Align Right"><i data-lucide="align-right"></i></button>
+                    <button id="ctx-btn-del-image" title="Delete Image" class="btn-danger-outline"><i data-lucide="x"></i></button>
+                </div>
+            </div>
+
+            <div class="ribbon-group contextual contextual-table hidden">
+                <span class="ribbon-group-label">Table</span>
+                <div class="ribbon-group-buttons">
+                    <button id="ctx-btn-insert-row" title="Insert Row"><i data-lucide="plus"></i>Row</button>
+                    <button id="ctx-btn-insert-col" title="Insert Column"><i data-lucide="plus"></i>Col</button>
+                    <button id="ctx-btn-del-row" title="Delete Row" class="btn-danger-outline"><i data-lucide="x"></i></button>
+                    <button id="ctx-btn-del-col" title="Delete Column" class="btn-danger-outline"><i data-lucide="x"></i></button>
+                    <button id="ctx-btn-merge-cells" title="Merge selected cells"><i data-lucide="combine"></i>Merge</button>
+                    <button id="ctx-btn-split-cell" title="Split merged cell"><i data-lucide="unfold-horizontal"></i>Split</button>
+                    <button id="ctx-btn-header-row" title="Toggle header row"><i data-lucide="panel-top"></i>Header</button>
+                    <button id="ctx-btn-del-table" title="Delete Table" class="btn-danger-outline"><i data-lucide="trash"></i></button>
+                </div>
+            </div>
+
+            <div class="ribbon-group" id="hf-controls" style="display:none;">
+                <span class="ribbon-group-label">Hdr/Ftr</span>
+                <div class="ribbon-group-buttons">
+                    <button id="btn-close-hf" class="btn-danger">Close Header/Footer</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="mobile-toolbar-drawer" class="mobile-toolbar-drawer"></div>
+
+    <div class="ruler-container">
+        <div class="ruler" id="ruler-bar">
+            <div class="ruler-marker margin-left" id="marker-margin-left" title="Left Margin"></div>
+            <div class="ruler-marker margin-right" id="marker-margin-right" title="Right Margin"></div>
+        </div>
+    </div>
+
+    <div id="floating-toolbar" class="floating-toolbar hidden">
+        <div class="floating-toolbar-buttons">
+            <button id="flt-btn-bold" title="Bold"><i data-lucide="bold"></i></button>
+            <button id="flt-btn-italic" title="Italic"><i data-lucide="italic"></i></button>
+            <button id="flt-btn-underline" title="Underline"><i data-lucide="underline"></i></button>
+            <button id="flt-btn-strikethrough" title="Strikethrough"><i data-lucide="strikethrough"></i></button>
+            <button id="flt-btn-code" title="Inline Code"><code>&lt;/&gt;</code></button>
+            <span class="flt-sep"></span>
+            <select id="flt-sel-font-size" title="Font Size" class="flt-font-size">
+                <option value="8">8</option><option value="10">10</option><option value="12" selected>12</option>
+                <option value="14">14</option><option value="16">16</option><option value="18">18</option>
+                <option value="24">24</option><option value="36">36</option>
+            </select>
+            <select id="flt-sel-style" title="Style" class="flt-style">
+                <option value="normal">Normal</option>
+                <option value="h1">H1</option><option value="h2">H2</option><option value="h3">H3</option>
+                <option value="quote">Quote</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="main-layout">
+        <div id="outline-sidebar" class="outline-sidebar">
+            <div class="outline-header">
+                <span>Navigation</span>
+                <button id="btn-outline-collapse" title="Collapse"><i data-lucide="chevron-left"></i></button>
+            </div>
+            <div class="nav-pane-tabs">
+                <span class="nav-pane-tab active" data-nav-tab="headings">Headings</span>
+                <span class="nav-pane-tab" data-nav-tab="pages">Pages</span>
+                <span class="nav-pane-tab" data-nav-tab="results">Results</span>
+            </div>
+            <div class="outline-search-wrapper">
+                <input type="text" id="inp-outline-search" placeholder="Search headings..." class="outline-search-input">
+            </div>
+            <div id="outline-content" class="nav-pane-content"></div>
+            <div id="pages-content" class="nav-pane-content hidden">loading pages...</div>
+            <div id="results-content" class="nav-pane-content hidden">
+                <div class="results-empty">0 results</div>
+            </div>
+        </div>
+        <div id="outline-rail" class="outline-rail hidden">
+            <button id="btn-outline-expand" title="Show outline"><i data-lucide="list"></i></button>
+        </div>
+        <div id="review-panel" class="review-panel hidden">
+            <div class="review-panel-header">
+                <span>Tracked Changes</span>
+                <button id="btn-review-close" title="Close"><i data-lucide="x"></i></button>
+            </div>
+            <div class="review-panel-actions">
+                <button id="rp-btn-accept-all" class="review-btn review-btn-accept">Accept All</button>
+                <button id="rp-btn-reject-all" class="review-btn review-btn-reject">Reject All</button>
+            </div>
+            <div id="review-list" class="review-list">
+                <div class="review-empty">No tracked changes</div>
+            </div>
+        </div>
+        <div id="workspace-wrapper">
+            <div id="welcome-page" class="welcome-page">
+                <div class="welcome-container">
+                    <div class="welcome-logo">
+                        <i data-lucide="file-text" class="welcome-icon"></i>
+                    </div>
+                    <h1 class="welcome-title">OpenWord</h1>
+                    <div class="welcome-actions">
+                        <button id="btn-welcome-new" class="welcome-btn welcome-btn-primary">
+                            <i data-lucide="plus"></i>New Blank Document
+                        </button>
+                        <button id="btn-welcome-open" class="welcome-btn welcome-btn-secondary">
+                            <i data-lucide="folder-open"></i>Open Document
+                        </button>
+                    </div>
+                    <div class="welcome-recent" id="welcome-recent">
+                        <h3 class="welcome-section-title">Recent</h3>
+                        <div id="welcome-recent-list" class="welcome-recent-list"></div>
+                    </div>
+                    <div class="welcome-templates" id="welcome-templates">
+                        <h3 class="welcome-section-title">Templates</h3>
+                        <div class="welcome-template-grid">
+                            <div class="welcome-template-card" data-template="blank">
+                                <div class="template-preview blank-preview"><i data-lucide="file"></i></div>
+                                <span>Blank Document</span>
+                            </div>
+                            <div class="welcome-template-card" data-template="report">
+                                <div class="template-preview report-preview"><i data-lucide="file-text"></i></div>
+                                <span>Report</span>
+                            </div>
+                            <div class="welcome-template-card" data-template="letter">
+                                <div class="template-preview letter-preview"><i data-lucide="mail"></i></div>
+                                <span>Letter</span>
+                            </div>
+                            <div class="welcome-template-card" data-template="notes">
+                                <div class="template-preview notes-preview"><i data-lucide="sticky-note"></i></div>
+                                <span>Meeting Notes</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div id="workspace" class="mode-page"></div>
+        </div>
+        <div id="workspace-split-wrapper" class="workspace-split-wrapper hidden">
+            <div id="workspace-split-left" class="workspace-split-pane">
+                <div class="split-pane-header"><span id="split-left-title">Document 1</span><button class="split-close-btn" data-pane="left"><i data-lucide="x"></i></button></div>
+                <div id="workspace-split-l" class="mode-page"></div>
+            </div>
+            <div class="workspace-split-divider"></div>
+            <div id="workspace-split-right" class="workspace-split-pane">
+                <div class="split-pane-header"><span id="split-right-title">Document 2</span><button class="split-close-btn" data-pane="right"><i data-lucide="x"></i></button></div>
+                <div id="workspace-split-r" class="mode-page"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="status-bar">
+        <div class="status-left">
+            <span id="save-status">Saved</span>
+            <span class="sep">·</span>
+            <span id="lang-display" title="Document Language">English (US)</span>
+            <span class="sep">·</span>
+            <span id="word-count">0 words</span>
+            <span class="sep">·</span>
+            <span id="char-count">0 chars</span>
+            <span class="sep">·</span>
+            <span id="page-count">Page 1</span>
+        </div>
+        <div class="status-mid">
+            <button id="btn-view-page-sb" class="status-view-btn active" title="Page Layout"><i data-lucide="layout-panel-left"></i></button>
+            <button id="btn-view-web-sb" class="status-view-btn" title="Web Layout"><i data-lucide="layout-list"></i></button>
+            <button id="btn-split-view-sb" class="status-view-btn" title="Split View"><i data-lucide="columns-2"></i></button>
+        </div>
+        <div class="status-right">
+            <button id="btn-zoom-out" title="Zoom Out"><i data-lucide="minus"></i></button>
+            <input type="range" id="zoom-slider" class="zoom-slider" min="50" max="200" value="100" step="5" title="Zoom">
+            <span id="zoom-display">100%</span>
+            <button id="btn-zoom-in" title="Zoom In"><i data-lucide="plus"></i></button>
+        </div>
+    </div>
+
+    <div class="mobile-nav-bar">
+        <button class="mobile-nav-item" data-nav="docs">
+            <i data-lucide="folder-open"></i>
+            <span>Docs</span>
+        </button>
+        <button class="mobile-nav-item" data-nav="outline">
+            <i data-lucide="list"></i>
+            <span>Outline</span>
+        </button>
+        <button class="mobile-nav-item" data-nav="find">
+            <i data-lucide="search"></i>
+            <span>Find</span>
+        </button>
+        <button class="mobile-nav-item" data-nav="review">
+            <i data-lucide="diff"></i>
+            <span>Review</span>
+        </button>
+        <button class="mobile-nav-item" data-nav="more">
+            <i data-lucide="more-horizontal"></i>
+            <span>More</span>
+        </button>
+    </div>
+
+    <div class="mobile-sheet-overlay" id="mobile-sheet-overlay">
+        <div class="mobile-sheet" id="mobile-sheet-outline">
+            <div class="mobile-sheet-handle"></div>
+            <div class="mobile-sheet-header">
+                <span>Navigation</span>
+                <button class="mobile-sheet-close-btn"><i data-lucide="x"></i></button>
+            </div>
+            <div class="nav-pane-tabs">
+                <span class="nav-pane-tab active" data-nav-tab="headings">Headings</span>
+                <span class="nav-pane-tab" data-nav-tab="pages">Pages</span>
+                <span class="nav-pane-tab" data-nav-tab="results">Results</span>
+            </div>
+            <div class="outline-search-wrapper">
+                <input type="text" id="inp-mob-outline-search" placeholder="Search headings..." class="outline-search-input">
+            </div>
+            <div id="mob-outline-content" class="nav-pane-content mobile-sheet-body"></div>
+            <div id="mob-pages-content" class="nav-pane-content mobile-sheet-body hidden">loading pages...</div>
+            <div id="mob-results-content" class="nav-pane-content mobile-sheet-body hidden">
+                <div class="results-empty">0 results</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="doc-sidebar" class="sidebar hidden">
+        <div class="sidebar-header">
+            <h3>Documents</h3>
+            <button id="btn-sidebar-close"><i data-lucide="x"></i></button>
+        </div>
+        <div class="sidebar-actions">
+            <button id="btn-new-doc" class="btn-primary">New Document</button>
+        </div>
+        <div id="doc-list" class="doc-list"></div>
+    </div>
+
+    <div id="modal-page" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">Page Setup <span class="close-modal"><i data-lucide="x"></i></span></div>
+            <div class="modal-body">
+                <label>Margins (inches):</label>
+                <div style="display:flex; gap:10px;">
+                    <input id="inp-margin-top" placeholder="Top" value="1">
+                    <input id="inp-margin-bottom" placeholder="Bottom" value="1">
+                </div>
+                <div style="display:flex; gap:10px; margin-top:5px;">
+                    <input id="inp-margin-left" placeholder="Left" value="1">
+                    <input id="inp-margin-right" placeholder="Right" value="1">
+                </div>
+                <button id="btn-apply-page" class="btn-primary">Apply</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-find" class="modal hidden">
+        <div class="modal-content" style="width: 420px;">
+            <div class="modal-header">Find & Replace <span class="close-modal"><i data-lucide="x"></i></span></div>
+            <div class="modal-body">
+                <div style="display:flex; gap:5px; margin-bottom:8px;">
+                    <input type="text" id="inp-find-text" placeholder="Find..." style="flex:1; padding:4px 6px;" autofocus>
+                    <button id="btn-find-next">Next (F3)</button>
+                    <button id="btn-find-prev">Prev</button>
+                </div>
+                <div style="display:flex; gap:5px; margin-bottom:8px;">
+                    <input type="text" id="inp-replace-text" placeholder="Replace with..." style="flex:1; padding:4px 6px;">
+                    <button id="btn-replace-one">Replace</button>
+                    <button id="btn-replace-all">All</button>
+                </div>
+                <div style="display:flex; gap:12px; margin-bottom:8px; font-size:12px; align-items:center;">
+                    <label><input type="checkbox" id="chk-case-sensitive"> Case-sensitive</label>
+                    <label><input type="checkbox" id="chk-regex"> Regex</label>
+                </div>
+                <div id="find-status" style="font-size:12px; color:#666; text-align:right;"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="context-menu-outline" class="context-menu hidden">
+        <div class="context-menu-item" data-action="rename">Rename Heading</div>
+        <div class="context-menu-item" data-action="delete">Delete Heading</div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" data-action="promote">Promote to H1</div>
+        <div class="context-menu-item" data-action="demote">Demote to H2</div>
+    </div>
+
+    <div id="context-menu" class="context-menu hidden">
+        <div class="context-menu-item" data-action="cut">Cut</div>
+        <div class="context-menu-item" data-action="copy">Copy</div>
+        <div class="context-menu-item" data-action="paste">Paste</div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" data-action="bold">Bold</div>
+        <div class="context-menu-item" data-action="italic">Italic</div>
+        <div class="context-menu-item" data-action="underline">Underline</div>
+        <div class="context-menu-item" data-action="strikethrough">Strikethrough</div>
+        <div class="context-menu-item" data-action="code">Inline Code</div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" data-action="link">Insert Link</div>
+        <div class="context-menu-item" data-action="footnote">Insert Footnote</div>
+        <div class="context-menu-item" data-action="endnote">Insert Endnote</div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item ctx-image" data-action="alignLeft">Align Left</div>
+        <div class="context-menu-item ctx-image" data-action="alignCenter">Align Center</div>
+        <div class="context-menu-item ctx-image" data-action="alignRight">Align Right</div>
+        <div class="context-menu-separator ctx-table-sep"></div>
+        <div class="context-menu-item ctx-table" data-action="insertRow">Insert Row</div>
+        <div class="context-menu-item ctx-table" data-action="insertCol">Insert Column</div>
+        <div class="context-menu-item ctx-table" data-action="deleteRow">Delete Row</div>
+        <div class="context-menu-item ctx-table" data-action="deleteCol">Delete Column</div>
+        <div class="context-menu-separator ctx-list-sep"></div>
+        <div class="context-menu-item ctx-list" data-action="checklistToggle">Toggle Checkbox</div>
+        <div class="context-menu-item ctx-list" data-action="listToText">Convert to Text</div>
+        <div class="context-menu-separator"></div>
+        <div class="context-menu-item" data-action="deleteBlock">Delete Block</div>
+        <div class="context-menu-item" data-action="removeFormat">Clear Formatting</div>
+    </div>
+
+    <div id="quick-insert-menu" class="quick-insert-menu hidden"></div>
+
+    <div id="persistence-dialog-backdrop" class="persistence-dialog-backdrop hidden">
+        <div class="persistence-dialog-card">
+            <h3 id="persistence-dialog-title">Save Conflict</h3>
+            <p id="persistence-dialog-body">Another version of this document was saved. What would you like to do?</p>
+            <div class="persistence-dialog-actions">
+                <button id="persistence-dialog-cancel">Cancel</button>
+                <button id="persistence-dialog-secondary">Keep Server Version</button>
+                <button id="persistence-dialog-primary" class="btn-primary">Keep My Version</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="recovery-dialog-backdrop" class="persistence-dialog-backdrop hidden">
+        <div class="persistence-dialog-card">
+            <h3>Recover Unsaved Changes</h3>
+            <p>We found unsaved changes from a previous session. Would you like to restore them?</p>
+            <div class="persistence-dialog-actions">
+                <button id="recovery-dialog-discard">Discard</button>
+                <button id="recovery-dialog-restore" class="btn-primary">Restore</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/lucide@0.468.0"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <script src="https://unpkg.com/docx@7.8.2/build/index.js"></script>
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        if (typeof lucide !== 'undefined') {
+          lucide.createIcons();
+        }
+      });
+
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      }
+    </script>
+</body>
+</html>

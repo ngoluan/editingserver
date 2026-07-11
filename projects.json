@@ -23,8 +23,9 @@
       "combineScript": "/Users/seconduser/StudioProjects/editingserver/aiiptv_combine-source.sh",
       "combinedOutput": "/Users/seconduser/StudioProjects/editingserver/aiiptv_combined-source.txt",
       "patchDir": "/Users/seconduser/StudioProjects/editingserver/patches",
-      "opencodeSessionId": "ses_0b38cdde1ffe2RkCqQ7FXHl1Bn",
-      "opencodeSessionStartedAt": "2026-07-10T14:34:01.683Z"
+      "opencodeSessionId": "ses_0b0efa6f4ffea64k8fq1bTPSeM",
+      "opencodeSessionStartedAt": "2026-07-11T02:44:59.290Z",
+      "opencodeJobType": "patch"
     }
   ]
 }

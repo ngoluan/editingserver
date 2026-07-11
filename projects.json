@@ -1,44 +1,30 @@
 {
   "projects": [
     {
-      "id": "aiiptv",
-      "name": "AIIPTV",
-      "path": "/home/luanngo/aiiptv",
-      "combineScript": "/home/luanngo/server/aiiptv_combine-source.sh",
-      "combinedOutput": "/home/luanngo/server/aiiptv_combined-source.txt",
-      "patchDir": "/home/luanngo/server/patches"
-    },
-    {
-      "id": "oddjobs",
-      "name": "OddJobs",
-      "path": "/home/luanngo/oddjobs",
-      "combineScript": "/home/luanngo/server/oddjobs_combine.sh",
-      "combinedOutput": "/home/luanngo/server/oddjobs_combined-source.txt",
-      "patchDir": "/home/luanngo/server/patches"
-    },
-    {
-      "id": "canvasforge",
-      "name": "CanvasForge",
-      "path": "/home/luanngo/canvasforge",
-      "combineScript": "/home/luanngo/server/canvas_combine-source.sh",
-      "combinedOutput": "/home/luanngo/server/canvas_combined-source.txt",
-      "patchDir": "/home/luanngo/server/patches"
+      "id": "windowedwebbrowser",
+      "name": "WindowedWebBrowser",
+      "path": "/Users/seconduser/StudioProjects/WindowWeb",
+      "combineScript": "/Users/seconduser/StudioProjects/editingserver/windowedwebbrowser_combine-source.sh",
+      "combinedOutput": "/Users/seconduser/StudioProjects/editingserver/windowedwebbrowser_combined-source.txt",
+      "patchDir": "/Users/seconduser/StudioProjects/editingserver/patches"
     },
     {
       "id": "echo",
       "name": "Echo",
-      "path": "/home/luanngo/echo/godot/echo-godot-phase1-14/echo-godot-phase1-14",
-      "combineScript": "/home/luanngo/server/echo_combine-src.sh",
-      "combinedOutput": "/home/luanngo/server/echo-combined-source.txt",
-      "patchDir": "/home/luanngo/server/patches"
+      "path": "/Users/seconduser/StudioProjects/echo",
+      "combineScript": "/Users/seconduser/StudioProjects/editingserver/echo_combine-source.sh",
+      "combinedOutput": "/Users/seconduser/StudioProjects/editingserver/echo_combined-source.txt",
+      "patchDir": "/Users/seconduser/StudioProjects/editingserver/patches"
     },
     {
-      "id": "opendoc",
-      "name": "OpenDoc",
-      "path": "/home/luanngo/opendoc",
-      "combineScript": "/home/luanngo/server/opendoc_combine-source.sh",
-      "combinedOutput": "/home/luanngo/server/opendoc_combined-source.txt",
-      "patchDir": "/home/luanngo/server/patches"
+      "id": "aiiptv",
+      "name": "AIIPTV",
+      "path": "/Users/seconduser/StudioProjects/aiiptv",
+      "combineScript": "/Users/seconduser/StudioProjects/editingserver/aiiptv_combine-source.sh",
+      "combinedOutput": "/Users/seconduser/StudioProjects/editingserver/aiiptv_combined-source.txt",
+      "patchDir": "/Users/seconduser/StudioProjects/editingserver/patches",
+      "opencodeSessionId": "ses_0b38cdde1ffe2RkCqQ7FXHl1Bn",
+      "opencodeSessionStartedAt": "2026-07-10T14:34:01.683Z"
     }
   ]
 }

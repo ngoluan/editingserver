@@ -9,6 +9,10 @@ const DATA_DIR = path.join(DIR, 'data');
 const SESSIONS_DIR = path.join(DATA_DIR, 'sessions');
 const CONFIG_FILE = path.join(DIR, 'projects.json');
 
+const OPENCODE_SERVER_URL = process.env.OPENCODE_SERVER_URL || 'http://192.168.18.34:4096';
+const OPENCODE_SERVER_USER = process.env.OPENCODE_SERVER_USERNAME || 'luan_ngo';
+const OPENCODE_SERVER_PASS = process.env.OPENCODE_SERVER_PASSWORD || '';
+
 fs.mkdirSync(SESSIONS_DIR, { recursive: true });
 
 const MIME = {
@@ -61,12 +65,86 @@ function parseBody(req) {
   });
 }
 
-function run(cmd, cwd) {
+function run(cmd, cwd, timeoutMs) {
   return new Promise(resolve => {
-    exec(cmd, { cwd, timeout: 60000, maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => {
+    exec(cmd, { cwd, timeout: timeoutMs || 60000, maxBuffer: 50 * 1024 * 1024 }, (err, stdout, stderr) => {
       resolve({ code: err ? err.code || 1 : 0, stdout: stdout || '', stderr: stderr || '', error: err ? err.message : null });
     });
   });
+}
+
+function opencodeApi(method, endpoint, body) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(endpoint, OPENCODE_SERVER_URL);
+    const data = body ? JSON.stringify(body) : null;
+    const headers = { 'Content-Type': 'application/json' };
+    if (OPENCODE_SERVER_PASS) {
+      headers['Authorization'] = 'Basic ' + Buffer.from(`${OPENCODE_SERVER_USER}:${OPENCODE_SERVER_PASS}`).toString('base64');
+    }
+    const options = {
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname + (url.search || ''),
+      method,
+      headers,
+    };
+    if (data) options.headers['Content-Length'] = Buffer.byteLength(data);
+    const req = http.request(options, (apiRes) => {
+      let responseData = '';
+      apiRes.on('data', chunk => responseData += chunk);
+      apiRes.on('end', () => {
+        try { resolve({ status: apiRes.statusCode, data: JSON.parse(responseData) }); }
+        catch { resolve({ status: apiRes.statusCode, data: responseData }); }
+      });
+    });
+    req.on('error', reject);
+    if (data) req.write(data);
+    req.end();
+  });
+}
+
+function opencodeEndpoint(endpoint, projectPath) {
+  const separator = endpoint.includes('?') ? '&' : '?';
+  return `${endpoint}${separator}directory=${encodeURIComponent(projectPath)}`;
+}
+
+async function launchOpencodeJob(project, title, prompt, jobType) {
+  const sessionRes = await opencodeApi('POST', opencodeEndpoint('/session', project.path), { title });
+  if (sessionRes.status !== 200 && sessionRes.status !== 201) {
+    return { success: false, error: `Failed to create OpenCode session: ${sessionRes.status}` };
+  }
+
+  const sessionId = sessionRes.data.id;
+  const msgRes = await opencodeApi(
+    'POST',
+    opencodeEndpoint(`/session/${sessionId}/prompt_async`, project.path),
+    { agent: 'build', parts: [{ type: 'text', text: prompt }] },
+  );
+  const success = msgRes.status === 200 || msgRes.status === 204;
+  if (!success) return { success: false, sessionId, error: `OpenCode rejected prompt: ${msgRes.status}` };
+
+  const data = loadProjects();
+  const savedProject = data.projects.find(p => p.id === project.id);
+  if (savedProject) {
+    savedProject.opencodeSessionId = sessionId;
+    savedProject.opencodeSessionStartedAt = new Date().toISOString();
+    savedProject.opencodeJobType = jobType;
+    saveProjects(data);
+  }
+  return { success: true, sessionId, jobType };
+}
+
+async function opencodeApplyPatch(projectPath, projectId, patchContent) {
+  try {
+    const project = findProject(projectId) || { id: projectId, path: projectPath };
+    return await launchOpencodeJob(project, `patch-${projectId}`, `You are working in the project directory ${projectPath}.
+Apply the uploaded patch below to this project. Inspect the repository, implement every requested change, resolve context differences safely, and verify the result. Do not merely explain the patch; edit the project files.
+
+UPLOADED PATCH:
+${patchContent}`, 'patch');
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
 }
 
 function logSession(projectId, entry) {
@@ -87,6 +165,178 @@ function serveFile(res, filePath) {
     'Cache-Control': 'no-cache',
   });
   fs.createReadStream(filePath).pipe(res);
+}
+
+function scanDirectory(dir, maxDepth = 3, currentDepth = 0) {
+  const results = { dirs: [], files: [] };
+  if (currentDepth > maxDepth) return results;
+  try {
+    const entries = fs.readdirSync(dir);
+    for (const entry of entries) {
+      if (entry.startsWith('.')) continue;
+      const fullPath = path.join(dir, entry);
+      try {
+        const stat = fs.statSync(fullPath);
+        if (stat.isDirectory()) {
+          results.dirs.push(fullPath);
+          const sub = scanDirectory(fullPath, maxDepth, currentDepth + 1);
+          results.dirs.push(...sub.dirs);
+          results.files.push(...sub.files);
+        } else {
+          results.files.push(fullPath);
+        }
+      } catch {}
+    }
+  } catch {}
+  return results;
+}
+
+function scanProjectForCombineScript(projectPath) {
+  const dirsToIgnore = new Set();
+  const extensions = new Set();
+  const binaryExts = new Set(['.png', '.jpg', '.jpeg', '.gif', '.ico', '.svg', '.woff', '.woff2', '.ttf', '.eot', '.pdf', '.zip', '.gz', '.tar', '.tgz', '.jar', '.class', '.pyc', '.pyo', '.so', '.dll', '.dylib', '.exe', '.obj', '.o', '.a', '.lib', '.DS_Store']);
+  const sourceExtPriority = ['.js', '.ts', '.jsx', '.tsx', '.py', '.java', '.kt', '.kts', '.swift', '.rs', '.go', '.rb', '.php', '.c', '.cpp', '.h', '.hpp', '.css', '.html', '.vue', '.svelte', '.gd', '.scala', '.dart', '.zig', '.nim', '.r', '.m', '.mm', '.prisma', '.graphql', '.sql'];
+
+  const topEntries = [];
+  try {
+    const entries = fs.readdirSync(projectPath);
+    for (const e of entries) {
+      if (e.startsWith('.')) continue;
+      try {
+        const full = path.join(projectPath, e);
+        if (fs.statSync(full).isDirectory()) topEntries.push(e);
+      } catch {}
+    }
+  } catch {}
+
+  const commonIgnoreDirs = ['node_modules', '.git', 'target', 'build', 'dist', 'venv', '.venv', '__pycache__', 'tmp', '.backup', 'data', 'patches', '.next', '.nuxt', 'out', '.output', 'coverage', '.nyc_output', 'vendor', '.bundle', '.gradle', 'Pods', '.build', 'elm-stuff', '_build', 'deps', '*.egg-info', '.tox', '.mypy_cache', '.pytest_cache', '.serverless', '.terraform', '.next', 'cache', 'logs', '.env', 'env'];
+  const detectedIgnores = commonIgnoreDirs.filter(d => topEntries.includes(d));
+
+  const allFiles = scanDirectory(projectPath, 6);
+  const sourceFiles = [];
+  const lockFiles = ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lock', 'Cargo.lock', 'Gemfile.lock', 'poetry.lock', 'composer.lock'];
+
+  for (const f of allFiles.files) {
+    const ext = path.extname(f).toLowerCase();
+    const base = path.basename(f);
+    if (binaryExts.has(ext)) continue;
+    if (lockFiles.includes(base)) continue;
+    extensions.add(ext);
+    if (ext) sourceFiles.push(f);
+  }
+
+  const detectedSourceExts = sourceExtPriority.filter(e => extensions.has(e));
+
+  let fullExtList = detectedSourceExts.slice(0, 20);
+
+  if (fullExtList.length === 0) fullExtList = ['.js', '.ts', '.py'];
+
+  let includePattern = '';
+  if (fullExtList.length <= 8) {
+    includePattern = fullExtList.map(e => `  -name "${e}"`).join(' -o \\\n');
+  }
+
+  let gitignoreDirPatterns = [];
+  try {
+    const gitignorePath = path.join(projectPath, '.gitignore');
+    if (fs.existsSync(gitignorePath)) {
+      const content = fs.readFileSync(gitignorePath, 'utf8');
+      for (const line of content.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('!')) continue;
+        const dirMatch = trimmed.replace(/\/+$/, '');
+        if (dirMatch && !dirMatch.startsWith('*') && !dirMatch.startsWith('.')) {
+          gitignoreDirPatterns.push(dirMatch);
+        }
+      }
+    }
+  } catch {}
+
+  const allIgnores = [...new Set([...detectedIgnores, ...gitignoreDirPatterns])];
+
+  return {
+    detectedIgnores,
+    gitignoreDirPatterns,
+    detectedSourceExts,
+    allExts: [...extensions].filter(Boolean),
+    fullExtList,
+    allIgnores,
+    topEntries,
+    fileCount: allFiles.files.length,
+  };
+}
+
+function generateSmartCombineScript(projectPath, projectId, outputDir, scanResult) {
+  const ignores = scanResult.allIgnores;
+  const exts = scanResult.fullExtList;
+  const lockFiles = ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'bun.lock', 'Cargo.lock', 'Gemfile.lock', 'poetry.lock', 'composer.lock'];
+  const binaryNames = ['*.svg', '*.png', '*.jpg', '*.jpeg', '*.gif', '*.ico', '*.woff', '*.woff2', '*.ttf', '*.eot', '*.pdf', '*.zip', '*.gz', '*.tar', '*.tgz', '*.jar', '*.class', '*.pyc', '*.pyo', '*.so', '*.dll', '*.dylib', '*.exe', '*.obj', '*.o'];
+
+  const excludeLines = [
+    ...ignores.map(d => `  ! -path "*/${d}/*"`),
+    ...lockFiles.map(f => `  ! -name "${f}"`),
+    ...binaryNames.map(f => `  ! -name "${f}"`),
+  ];
+
+  let findBlock;
+  if (exts.length <= 10) {
+    const nameTests = exts.map(e => `  -name "*${e}"`).join(' -o \\\n') + ' \\';
+    const prefix = `find "$SRC_DIR" -type f \\( \\\n${nameTests}\n\\) \\\n`;
+    if (excludeLines.length) {
+      const last = excludeLines.pop();
+      findBlock = prefix + excludeLines.join(' \\\n') + ' \\\n' + last;
+    } else {
+      findBlock = prefix;
+    }
+  } else {
+    const prefix = `find "$SRC_DIR" -type f \\\n`;
+    if (excludeLines.length) {
+      const last = excludeLines.pop();
+      findBlock = prefix + excludeLines.join(' \\\n') + ' \\\n' + last;
+    } else {
+      findBlock = prefix;
+    }
+  }
+
+  return `#!/usr/bin/env bash
+set -euo pipefail
+
+SRC_DIR="\${1:-${projectPath}}"
+OUTPUT_DIR="\${2:-${outputDir}}"
+OUTPUT_FILE="$OUTPUT_DIR/${projectId}_combined-source.txt"
+
+: > "$OUTPUT_FILE"
+
+${findBlock} \\
+  | sort \\
+  | while read -r f; do
+    rel="\${f#$SRC_DIR/}"
+    echo "// ===== \$rel =====" >> "$OUTPUT_FILE"
+    cat "\$f" >> "$OUTPUT_FILE"
+    echo "" >> "$OUTPUT_FILE"
+  done
+
+echo "Done. Combined \$(wc -l < "$OUTPUT_FILE") lines into $OUTPUT_FILE"
+`;
+}
+
+async function scanAndGenerateCombineScript(projectPath, projectId, outputDir) {
+  const scanResult = scanProjectForCombineScript(projectPath);
+  const script = generateSmartCombineScript(projectPath, projectId, outputDir, scanResult);
+  return {
+    script,
+    summary: {
+      ignoredDirs: scanResult.detectedIgnores,
+      gitignorePatterns: scanResult.gitignoreDirPatterns,
+      sourceExtensions: scanResult.detectedSourceExts,
+      fileCount: scanResult.fileCount,
+      totalIgnoreDirs: scanResult.allIgnores.length,
+    },
+    ignores: scanResult.detectedIgnores,
+    gitignorePatterns: scanResult.gitignoreDirPatterns,
+    extensions: scanResult.detectedSourceExts,
+    allExtensions: scanResult.allExts,
+  };
 }
 
 function generateCombineScript(projectPath, projectId, outputDir) {
@@ -258,6 +508,55 @@ async function handleApi(method, url, req, res) {
   const project = findProject(projectId);
   if (!project) return json(res, 404, { error: 'Project not found' });
 
+  // POST /api/projects/:id/update-combine-script — smart scan and regenerate combine script
+  if (method === 'POST' && action === 'update-combine-script') {
+    try {
+      const projectPath = project.path;
+      const result = await scanAndGenerateCombineScript(projectPath, projectId, DIR);
+      if (project.combineScript) {
+        fs.writeFileSync(project.combineScript, result.script);
+        fs.chmodSync(project.combineScript, 0o755);
+      }
+      logSession(projectId, { action: 'update_combine_script', ...result.summary });
+      return json(res, 200, result);
+    } catch (e) {
+      return json(res, 500, { error: e.message });
+    }
+  }
+
+  // POST /api/projects/:id/ai-smart-update — use opencode web API to generate a combine script
+  if (method === 'POST' && action === 'ai-smart-update') {
+    try {
+      const projectPath = project.path;
+      const scriptPath = project.combineScript || path.join(DIR, `${projectId}_combine-source.sh`);
+      const combinedOutput = project.combinedOutput;
+      const outputBasename = path.basename(combinedOutput);
+
+      const prompt = `You are working in the project directory ${projectPath}.
+Update the existing combine script at this exact path: ${scriptPath}. Inspect the project only to discover reusable file-selection rules; do not add individual project file paths to the script.
+
+REQUIREMENTS:
+- The finished script MUST select files using wildcard and exclusion rules. Use find with -name WILDCARDS like -name "*.ts" -o -name "*.jsx". NEVER list individual source file paths.
+- First scan the project to discover which source extensions exist, then use those extensions as wildcards.
+- Combine wildcards inside \\( ... \\) to match ONLY source code file types.
+- Accept SRC_DIR (default: ${projectPath}) and OUTPUT_DIR (default: ${DIR}) as $1 and $2.
+- Set OUTPUT_FILE="\${OUTPUT_DIR}/${outputBasename}".
+- Empty OUTPUT_FILE with ": > \"\${OUTPUT_FILE}\"" at the start.
+- Exclude with ! -path for: node_modules .git build dist target __pycache__ venv vendor coverage tmp .next .nuxt .gradle .backup data patches
+- Exclude with ! -name for: package-lock.json yarn.lock pnpm-lock.yaml bun.lock Cargo.lock Gemfile.lock poetry.lock composer.lock *.svg *.png *.jpg *.jpeg *.gif *.ico *.woff *.woff2 *.ttf *.eot *.pdf *.zip *.gz *.tar *.tgz *.jar *.class *.pyc *.pyo *.so *.dll *.dylib *.exe *.obj *.o
+- Sort output, prepend "// ===== relative/path =====" header before each file, then cat the file.
+- End with: echo "Done. Combined \$(wc -l < \"\${OUTPUT_FILE}\") lines into \${OUTPUT_FILE}"
+- Preserve useful existing rules when safe, replace any per-file list with wildcard rules, and mark the script executable with chmod +x.
+- Make the edits now and verify the resulting shell script with bash -n.`;
+
+      const result = await launchOpencodeJob(project, `smart-combine-${projectId}`, prompt, 'combine-script');
+      logSession(projectId, { action: 'ai_smart_update', sessionId: result.sessionId, success: result.success });
+      return json(res, result.success ? 200 : 500, result);
+    } catch (e) {
+      return json(res, 500, { error: e.message });
+    }
+  }
+
   // POST /api/projects/:id/combine
   if (method === 'POST' && action === 'combine') {
     try {
@@ -308,6 +607,78 @@ async function handleApi(method, url, req, res) {
     fs.writeFileSync(patchPath, body.content || '');
     logSession(projectId, { action: 'patch_save', size: (body.content || '').length });
     return json(res, 200, { success: true });
+  }
+
+  // POST /api/projects/:id/apply-patch — run git apply
+  if (method === 'POST' && action === 'apply-patch') {
+    const patchPath = path.join(project.patchDir || DIR, `${project.id}_patch.txt`);
+    if (!fs.existsSync(patchPath)) return json(res, 400, { error: 'No patch file saved. Save the patch first.' });
+    const result = await run(`git apply "${patchPath}"`, project.path);
+    logSession(projectId, { action: 'apply_patch', success: result.code === 0 });
+    return json(res, result.code === 0 ? 200 : 400, {
+      success: result.code === 0,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    });
+  }
+
+  // POST /api/projects/:id/apply-opencode — use opencode web API to implement the patch
+  if (method === 'POST' && action === 'apply-opencode') {
+    const body = await parseBody(req);
+    const patchDir = project.patchDir || DIR;
+    fs.mkdirSync(patchDir, { recursive: true });
+    const patchPath = path.join(patchDir, `${project.id}_patch.txt`);
+    if (body.content) {
+      fs.writeFileSync(patchPath, body.content);
+    }
+    if (!fs.existsSync(patchPath)) return json(res, 400, { error: 'No patch content' });
+
+    const patchContent = fs.readFileSync(patchPath, 'utf8');
+    const result = await opencodeApplyPatch(project.path, projectId, patchContent);
+    logSession(projectId, { action: 'apply_opencode', ...result });
+    return json(res, result.success ? 200 : 500, result);
+  }
+
+  // GET /api/projects/:id/opencode-session — check opencode session progress
+  if (method === 'GET' && action === 'opencode-session') {
+    const sid = project.opencodeSessionId;
+    if (!sid) return json(res, 200, { active: false });
+    try {
+      const [todoRes, msgRes, statusRes] = await Promise.all([
+        opencodeApi('GET', opencodeEndpoint(`/session/${sid}/todo`, project.path)),
+        opencodeApi('GET', opencodeEndpoint(`/session/${sid}/message?limit=12`, project.path)),
+        opencodeApi('GET', opencodeEndpoint('/session/status', project.path)),
+      ]);
+      const todos = (todoRes.status === 200 && todoRes.data) ? todoRes.data : [];
+      const messages = (msgRes.status === 200 && msgRes.data) ? msgRes.data.map(m => ({
+        role: m.info ? m.info.role : 'unknown',
+        parts: m.parts || m.info?.parts || [],
+        time: m.info ? m.info.time : null,
+      })) : [];
+      const sessionStatus = statusRes.status === 200 && statusRes.data ? statusRes.data[sid] : null;
+      const active = sessionStatus ? sessionStatus.type !== 'idle' : true;
+      if (!active) {
+        const data = loadProjects();
+        const savedProject = data.projects.find(p => p.id === projectId);
+        if (savedProject && savedProject.opencodeSessionId === sid) {
+          delete savedProject.opencodeSessionId;
+          delete savedProject.opencodeSessionStartedAt;
+          delete savedProject.opencodeJobType;
+          saveProjects(data);
+        }
+      }
+      return json(res, 200, {
+        active,
+        sessionId: sid,
+        jobType: project.opencodeJobType || 'patch',
+        status: sessionStatus || { type: 'running' },
+        startedAt: project.opencodeSessionStartedAt || null,
+        todos,
+        messages,
+      });
+    } catch (e) {
+      return json(res, 200, { active: true, sessionId: sid, error: e.message });
+    }
   }
 
   // GET /api/projects/:id/status

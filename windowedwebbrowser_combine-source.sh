@@ -1,25 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SRC_DIR="${1:-/Users/seconduser/StudioProjects/aiiptv}"
+SRC_DIR="${1:-/Users/seconduser/StudioProjects/WindowWeb}"
 OUTPUT_DIR="${2:-/Users/seconduser/StudioProjects/editingserver}"
-OUTPUT_FILE="$OUTPUT_DIR/aiiptv_combined-source.txt"
+OUTPUT_FILE="$OUTPUT_DIR/windowedwebbrowser_combined-source.txt"
 
 : > "$OUTPUT_FILE"
 
 find "$SRC_DIR" -type f \( \
-  -name "*.js" -o \
-  -name "*.ts" -o \
   -name "*.kts" -o \
-  -name "*.prisma" -o \
-  -name "*.sql" \
+  -name "*.html" \
 \) \
+  ! -path "*/build/*" \
   ! -path "*/local.properties/*" \
-  ! -path "*/server/node_modules/*" \
-  ! -path "*/server/dist/*" \
-  ! -path "*/server/.env/*" \
-  ! -path "*/server/prisma/*.db/*" \
-  ! -path "*/server/prisma/*.db-journal/*" \
+  ! -path "*/captures/*" \
   ! -name "package-lock.json" \
   ! -name "yarn.lock" \
   ! -name "pnpm-lock.yaml" \

@@ -128,6 +128,8 @@ pre.output {
 .session-item .action.commit { color: var(--green); }
 .session-item .action.merge { color: var(--yellow); }
 .session-item .action.patch_save { color: var(--text2); }
+.session-item .action.apply_patch { color: var(--green); }
+.session-item .action.apply_opencode { color: var(--accent); }
 .session-item .detail { color: var(--text2); }
 
 /* Modal */
@@ -169,17 +171,79 @@ pre.output {
 }
 .empty-state .icon { font-size: 40px; margin-bottom: 12px; }
 .empty-state p { font-size: 14px; }
+
+.session-progress {
+  margin-top: 12px; padding: 12px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; max-height: 400px; overflow-y: auto; display: none;
+}
+.session-progress.open { display: block; }
+.session-progress h3 {
+  font-size: 13px; font-weight: 600; color: var(--accent); margin-bottom: 8px;
+}
+.session-progress .todo-item {
+  display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 12px;
+}
+.session-progress .todo-item.done { color: var(--green); text-decoration: line-through; }
+.session-progress .todo-item.pending { color: var(--text2); }
+.session-progress .msg-log { max-height: 500px; overflow-y: auto; }
+.session-progress .msg-entry {
+  padding: 8px; margin-bottom: 6px; border-radius: 6px; font-size: 12px;
+  line-height: 1.5; word-break: break-word;
+}
+.session-progress .msg-entry.user { background: var(--bg3); }
+.session-progress .msg-entry.assistant { background: #161b33; border: 1px solid #252d4a; }
+.session-progress .msg-entry.tool { background: #1a1a2e; }
+.session-progress .msg-entry .role { font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+.session-progress .msg-entry.user .role { color: var(--green); }
+.session-progress .msg-entry.assistant .role { color: var(--accent); }
+.session-progress .msg-entry.tool .role { color: var(--yellow); }
+.session-progress .msg-entry .time { color: var(--text2); font-size: 10px; margin-left: 8px; }
+.session-progress .msg-entry .text { margin-top: 4px; color: var(--text); white-space: pre-wrap; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; }
+.session-progress .msg-entry .reasoning {
+  margin-top: 4px; padding: 6px 8px; background: rgba(88,166,255,0.08); border-left: 2px solid var(--accent);
+  border-radius: 4px; font-size: 11px; color: var(--text2); font-style: italic;
+}
+
+/* Dashboard shell */
+.header { min-height: 68px; padding: 14px 28px; background: #111720; }
+.brand-kicker { display:block; color:var(--accent); font-size:10px; letter-spacing:1.8px; text-transform:uppercase; margin-bottom:2px; }
+.dashboard-summary { display:grid; grid-template-columns:repeat(4,minmax(120px,1fr)); gap:12px; padding:16px 24px; }
+.summary-tile { background:linear-gradient(145deg,#171e28,#121821); border:1px solid var(--border); border-radius:12px; padding:14px 16px; }
+.summary-tile .value { font-size:22px; font-weight:750; letter-spacing:-.5px; }
+.summary-tile .caption { color:var(--text2); font-size:11px; margin-top:2px; }
+.workspace { display:grid; grid-template-columns:minmax(300px,360px) minmax(0,1fr); gap:16px; padding:0 24px 24px; flex:1; min-height:0; }
+.project-rail { background:var(--bg2); border:1px solid var(--border); border-radius:12px; overflow:hidden; display:flex; flex-direction:column; min-height:0; }
+.rail-heading { padding:16px 16px 8px; font-weight:650; }
+.card-grid { display:flex; flex-direction:column; padding:8px; overflow:auto; gap:8px; }
+.card { border-radius:10px; padding:14px; }
+.detail-panel { border:1px solid var(--border); border-radius:12px; overflow:hidden; background:var(--bg2); min-height:0; }
+.detail-panel.open { display:flex; }
+.workspace-empty { display:flex; align-items:center; justify-content:center; color:var(--text2); border:1px dashed var(--border); border-radius:12px; padding:40px; text-align:center; }
+.job-banner { display:flex; align-items:center; gap:10px; padding:10px 12px; background:rgba(88,166,255,.08); border:1px solid rgba(88,166,255,.25); border-radius:8px; margin-bottom:12px; }
+@media (max-width: 850px) {
+  body { height:auto; min-height:100vh; }
+  .dashboard-summary { grid-template-columns:repeat(2,1fr); }
+  .workspace { grid-template-columns:1fr; }
+  .project-rail { max-height:420px; }
+  .detail-panel { min-height:620px; }
+}
 </style>
 </head>
 <body>
 
 <div class="header">
-  <h1>opencode <span>dashboard</span></h1>
+  <h1><small class="brand-kicker">Workspace control</small>opencode <span>dashboard</span></h1>
   <button class="btn btn-primary" onclick="openAddModal()">+ Add Project</button>
 </div>
 
-<div id="card-grid" class="card-grid"></div>
-
+<div class="dashboard-summary" id="dashboard-summary"></div>
+<div class="workspace">
+<aside class="project-rail">
+  <div class="rail-heading">Projects</div>
+  <div id="card-status" class="status-line" style="padding:4px 16px;min-height:24px"></div>
+  <div id="card-grid" class="card-grid"></div>
+</aside>
+<div class="workspace-empty" id="workspace-empty">Select a project to manage combine scripts, patches, Git, and OpenCode sessions.</div>
 <div class="detail-panel" id="detail-panel">
   <div class="detail-header">
     <span class="close-btn" onclick="closeDetail()">✕</span>
@@ -198,6 +262,7 @@ pre.output {
     <div class="tab" id="tab-sessions"></div>
   </div>
 </div>
+</div>
 
 <div class="modal-overlay" id="add-modal">
   <div class="modal">
@@ -208,13 +273,14 @@ pre.output {
     </div>
     <div class="form-group">
       <label>Folder path</label>
-      <div class="form-row">
-        <div class="autocomplete-wrap">
-          <input type="text" id="new-path" placeholder="/home/user/my-project" autocomplete="off" oninput="onPathInput()" onkeydown="onPathKeydown(event)" onblur="hideAutocomplete()" />
-          <div class="autocomplete-dropdown" id="path-dropdown"></div>
-        </div>
-        <button class="btn" onclick="detectFolder()">Detect</button>
-      </div>
+  <div class="form-row">
+    <div class="autocomplete-wrap">
+      <input type="text" id="new-path" placeholder="/home/user/my-project" autocomplete="off" oninput="onPathInput()" onkeydown="onPathKeydown(event)" onblur="hideAutocomplete()" />
+      <div class="autocomplete-dropdown" id="path-dropdown"></div>
+    </div>
+    <button class="btn" onclick="openFolderPicker()">📁 Browse</button>
+    <button class="btn" onclick="detectFolder()">Detect</button>
+  </div>
       <div class="form-hint">Type a path — suggestions appear as you type</div>
     </div>
     <div class="detect-result" id="detect-result"></div>
@@ -226,6 +292,30 @@ pre.output {
     <div class="modal-actions">
       <button class="btn" onclick="closeAddModal()">Cancel</button>
       <button class="btn btn-primary" onclick="createProject()">Create</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="card-patch-input" accept=".patch,.txt,.diff" style="display:none" onchange="onCardPatchSelected(event)" />
+<div class="modal-overlay" id="folder-modal">
+  <div class="modal" style="width:600px">
+    <h2>Browse Folders</h2>
+    <div class="form-group">
+      <label>Current path</label>
+      <div class="form-row">
+        <input type="text" id="browse-path-readonly" readonly style="flex:1;background:var(--bg3)" />
+        <button class="btn btn-sm" onclick="browseGoUp()">⬆ Up</button>
+      </div>
+    </div>
+    <div style="margin-bottom:12px">
+      <button class="btn btn-sm" onclick="browseRoot('/')">/</button>
+      <button class="btn btn-sm" onclick="browseRoot('/Users')">/Users</button>
+      <button class="btn btn-sm" onclick="browseRoot('/etc')">/etc</button>
+    </div>
+    <div id="folder-list" style="max-height:350px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--bg);padding:4px 0;font-family:'SF Mono','Fira Code',monospace;font-size:12px"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeFolderPicker()">Cancel</button>
+      <button class="btn btn-primary" onclick="selectFolder()">Select</button>
     </div>
   </div>
 </div>
@@ -253,6 +343,15 @@ async function loadProjects() {
 
 function renderCards() {
   const grid = document.getElementById('card-grid');
+  const summary = document.getElementById('dashboard-summary');
+  const totalLines = state.projects.reduce((n, p) => n + (p.combinedLines || 0), 0);
+  const activeJobs = state.projects.filter(p => p.opencodeSessionId).length;
+  const dirty = state.projects.filter(p => p.gitDirty).length;
+  summary.innerHTML = `
+    <div class="summary-tile"><div class="value">${state.projects.length}</div><div class="caption">Projects</div></div>
+    <div class="summary-tile"><div class="value">${totalLines.toLocaleString()}</div><div class="caption">Combined lines</div></div>
+    <div class="summary-tile"><div class="value">${dirty}</div><div class="caption">Modified repos</div></div>
+    <div class="summary-tile"><div class="value">${activeJobs}</div><div class="caption">OpenCode sessions</div></div>`;
   if (!state.projects.length) {
     grid.innerHTML = `<div class="empty-state"><div class="icon">📦</div><p>No projects yet. Click <strong>+ Add Project</strong> to get started.</p></div>`;
     return;
@@ -274,32 +373,40 @@ function renderCards() {
       <div class="card-path">${p.path}</div>
       <div class="card-actions">
         <button class="btn btn-sm" onclick="event.stopPropagation();runQuickCombine('${p.id}')">⟳ Combine</button>
-        <button class="btn btn-sm" onclick="event.stopPropagation();quickCopy('${p.id}')">📋 Copy</button>
-        <button class="btn btn-sm" onclick="event.stopPropagation();openDetail('${p.id}')">⚙ More</button>
+        <button class="btn btn-sm" onclick="event.stopPropagation();uploadAndApplyPatch('${p.id}')">🩹 Patch</button>
+        <button class="btn btn-sm" onclick="event.stopPropagation();openDetail('${p.id}','git')">⎇ Git</button>
+        <button class="btn btn-sm" style="color:var(--red)" onclick="event.stopPropagation();deleteProject('${p.id}','${p.name}')">🗑</button>
       </div>
     </div>`;
   }).join('');
 }
 
-function openDetail(id) {
+function openDetail(id, tab) {
   const p = state.projects.find(x => x.id === id);
   if (!p) return;
   state.activeProject = p;
   const panel = document.getElementById('detail-panel');
+  document.getElementById('workspace-empty').style.display = 'none';
   document.getElementById('detail-name').textContent = `${p.name}  ·  ${p.gitBranch || 'no git'}`;
   panel.classList.add('open');
   renderCards();
+  tab = tab || 'combine';
   document.querySelectorAll('.toolbar button').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.querySelector('.toolbar button[data-tab="combine"]').classList.add('active');
-  document.getElementById('tab-combine').classList.add('active');
-  state.activeTab = 'combine';
-  renderCombine();
+  const tabBtn = document.querySelector(`.toolbar button[data-tab="${tab}"]`);
+  if (tabBtn) tabBtn.classList.add('active');
+  document.getElementById(`tab-${tab}`).classList.add('active');
+  state.activeTab = tab;
+  if (tab === 'combine') renderCombine();
+  else if (tab === 'patch') renderPatch();
+  else if (tab === 'git') renderGit();
+  else if (tab === 'sessions') renderSessions();
 }
 
 function closeDetail() {
   state.activeProject = null;
   document.getElementById('detail-panel').classList.remove('open');
+  document.getElementById('workspace-empty').style.display = 'flex';
   renderCards();
 }
 
@@ -330,9 +437,12 @@ function renderCombine() {
     </div>
     <div class="action-row">
       <button class="btn btn-primary" id="btn-combine" onclick="runCombine()">⟳ Combine Source</button>
+      <button class="btn" onclick="updateCombineScript()">🔍 Smart Update</button>
+      <button class="btn" onclick="aiSmartUpdate()">🤖 AI Smart Update</button>
       <button class="btn" onclick="copySource()">📋 Copy All</button>
       <span id="combine-status" class="status-line"></span>
     </div>
+    <div id="combine-progress" class="session-progress"></div>
     <h3>Combined Source Preview</h3>
     <pre class="output" id="source-output">Loading...</pre>
   `;
@@ -403,6 +513,41 @@ async function copySource() {
   }
 }
 
+async function updateCombineScript() {
+  const p = state.activeProject;
+  if (!p) return;
+  const status = document.getElementById('combine-status');
+  status.innerHTML = '<span class="spinner"></span> Scanning project...';
+  const data = await api('POST', `/api/projects/${p.id}/update-combine-script`);
+  if (data.error) {
+    status.innerHTML = `<span class="badge badge-red">Error</span> ${data.error}`;
+    return;
+  }
+  const parts = [];
+  if (data.ignores && data.ignores.length) parts.push(`ignored: ${data.ignores.join(', ')}`);
+  if (data.extensions && data.extensions.length) parts.push(`sources: ${data.extensions.join(', ')}`);
+  if (data.gitignorePatterns && data.gitignorePatterns.length) parts.push(`+ ${data.gitignorePatterns.length} .gitignore patterns`);
+  status.innerHTML = `<span class="badge badge-green">Updated</span> ${parts.join(' · ')}`;
+  setTimeout(() => status.innerHTML = '', 6000);
+}
+
+async function aiSmartUpdate() {
+  const p = state.activeProject;
+  if (!p) return;
+  const status = document.getElementById('combine-status');
+  status.innerHTML = '<span class="spinner"></span> Asking OpenCode Web API to build wildcard rules...';
+  const data = await api('POST', `/api/projects/${p.id}/ai-smart-update`);
+  if (data.success) {
+    p.opencodeSessionId = data.sessionId;
+    status.innerHTML = `<span class="badge badge-green">Running</span> Wildcard/rules update · ${data.sessionId.slice(-8)}`;
+    const progress = document.getElementById('combine-progress');
+    progress.className = 'session-progress open';
+    pollSessionProgress(p.id, progress);
+  } else {
+    status.innerHTML = `<span class="badge badge-red">Error</span> ${data.error || 'Failed'}`;
+  }
+}
+
 async function runQuickCombine(id) {
   const data = await api('POST', `/api/projects/${id}/combine`);
   if (data.success) fetchAndDownload(id);
@@ -414,6 +559,41 @@ async function quickCopy(id) {
   if (data.content) await navigator.clipboard.writeText(data.content);
 }
 
+let _cardPatchId = null;
+
+function uploadAndApplyPatch(id) {
+  _cardPatchId = id;
+  document.getElementById('card-patch-input').click();
+}
+
+function setCardStatus(html) {
+  const el = document.getElementById('card-status');
+  if (el) el.innerHTML = html;
+}
+
+async function onCardPatchSelected(event) {
+  const file = event.target.files[0];
+  if (!file || !_cardPatchId) return;
+  const id = _cardPatchId;
+  event.target.value = '';
+  _cardPatchId = null;
+  setCardStatus('<span class="spinner"></span> Sending to opencode web API...');
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    const content = e.target.result;
+    const data = await api('POST', `/api/projects/${id}/apply-opencode`, { content });
+    if (data.success && data.sessionId) {
+      setCardStatus(`<span class="badge badge-green">Running</span> Session: ${data.sessionId.slice(-8)} — check Patch tab for progress`);
+      await loadProjects();
+      openDetail(id, 'patch');
+    } else {
+      setCardStatus(`<span class="badge badge-red">Failed</span> ${(data.error || '').slice(0, 100)}`);
+    }
+    setTimeout(() => setCardStatus(''), 12000);
+  };
+  reader.readAsText(file);
+}
+
 // ── Patch tab ──
 function renderPatch() {
   const p = state.activeProject;
@@ -421,14 +601,19 @@ function renderPatch() {
   const el = document.getElementById('tab-patch');
   el.innerHTML = `
     <h2>Patch</h2>
-    <p style="color:var(--text2);margin-bottom:12px;font-size:13px">Paste the LLM's patch output below, then save it. Apply with <code style="background:var(--bg3);padding:1px 5px;border-radius:3px">git apply</code> or opencode.</p>
+    <p style="color:var(--text2);margin-bottom:12px;font-size:13px">Upload a patch file or paste content below.</p>
     <div class="action-row">
+      <button class="btn btn-primary" onclick="uploadPatchFile()">📂 Choose patch &amp; apply with OpenCode</button>
       <button class="btn btn-primary" onclick="savePatch()">💾 Save Patch</button>
+      <button class="btn" onclick="applyPatchGit()" style="background:var(--green);border-color:var(--green);color:#fff">▶ git apply</button>
+      <button class="btn btn-primary" onclick="applyWithOpencode()">🤖 Apply with opencode</button>
       <span id="patch-status" class="status-line"></span>
     </div>
-    <textarea id="patch-content" placeholder="Paste the patch content here..."></textarea>
+    <textarea id="patch-content" placeholder="Paste the patch content here or upload a .patch file..."></textarea>
+    <input type="file" id="patch-file-input" accept=".patch,.txt,.diff" style="display:none" onchange="onPatchFileSelected(event)" />
   `;
   loadPatchContent();
+  checkExistingSession(p.id);
 }
 
 async function loadPatchContent() {
@@ -448,6 +633,128 @@ async function savePatch() {
   p.patchExists = content.length > 0;
   loadProjects();
   setTimeout(() => status.innerHTML = '', 3000);
+}
+
+function uploadPatchFile() {
+  document.getElementById('patch-file-input').click();
+}
+
+function onPatchFileSelected(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    document.getElementById('patch-content').value = e.target.result;
+    event.target.value = '';
+    await applyWithOpencode();
+  };
+  reader.readAsText(file);
+}
+
+async function applyPatchGit() {
+  const p = state.activeProject;
+  if (!p) return;
+  const content = document.getElementById('patch-content').value;
+  const status = document.getElementById('patch-status');
+  await api('POST', `/api/projects/${p.id}/patch`, { content });
+  status.innerHTML = '<span class="spinner"></span> Applying patch with git...';
+  const data = await api('POST', `/api/projects/${p.id}/apply-patch`);
+  if (data.success) {
+    status.innerHTML = `<span class="badge badge-green">Applied</span> ${data.stdout || 'Patch applied'}`;
+    p.patchExists = content.length > 0;
+    loadProjects();
+  } else {
+    status.innerHTML = `<span class="badge badge-red">Error</span> ${data.stderr || data.error || 'Apply failed'}`;
+  }
+  setTimeout(() => status.innerHTML = '', 5000);
+}
+
+async function applyWithOpencode() {
+  const p = state.activeProject;
+  if (!p) return;
+  const content = document.getElementById('patch-content').value;
+  const status = document.getElementById('patch-status');
+  status.innerHTML = '<span class="spinner"></span> Sending to opencode web API...';
+
+  let progressEl = document.getElementById('session-progress');
+  if (!progressEl) {
+    progressEl = document.createElement('div');
+    progressEl.id = 'session-progress';
+    progressEl.className = 'session-progress open';
+    document.getElementById('tab-patch').appendChild(progressEl);
+  } else {
+    progressEl.className = 'session-progress open';
+    progressEl.innerHTML = '';
+  }
+
+  const data = await api('POST', `/api/projects/${p.id}/apply-opencode`, { content });
+  if (data.success && data.sessionId) {
+    p.opencodeSessionId = data.sessionId;
+    status.innerHTML = `<span class="badge badge-green">Launched</span> Session: ${data.sessionId.slice(-8)}`;
+    pollSessionProgress(p.id, progressEl);
+  } else {
+    status.innerHTML = `<span class="badge badge-red">Error</span> ${data.error || 'Failed'}`;
+    progressEl.className = 'session-progress';
+  }
+}
+
+async function pollSessionProgress(projectId, progressEl) {
+  try {
+    const res = await api('GET', `/api/projects/${projectId}/opencode-session`);
+    if (!res.active) {
+      progressEl.innerHTML = '<h3>Session complete</h3><p style="color:var(--green);font-size:13px">OpenCode has finished processing.</p>';
+      loadProjects();
+      setTimeout(() => { progressEl.className = 'session-progress'; }, 10000);
+      return;
+    }
+    let html = `<h3>OpenCode Progress</h3><p style="font-size:11px;color:var(--text2);margin-bottom:8px">Session: ${res.sessionId || ''}</p>`;
+    if (res.todos && res.todos.length > 0) {
+      html += '<div style="margin-bottom:8px">';
+      res.todos.forEach(t => {
+        const cls = t.status === 'completed' ? 'done' : 'pending';
+        const icon = t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '◉' : '○';
+        html += `<div class="todo-item ${cls}"><span>${icon}</span> ${t.content}</div>`;
+      });
+      html += '</div>';
+    }
+    if (res.messages && res.messages.length > 0) {
+      const lastMsg = res.messages[res.messages.length - 1];
+      if (lastMsg.parts && lastMsg.parts.length > 0) {
+        const textPart = lastMsg.parts.find(p => p.type === 'text' || p.text);
+        if (textPart) {
+          const text = (textPart.text || '').slice(-500);
+          html += `<div class="msg-preview"><span class="role">${lastMsg.role}:</span> ${escapeHtml(text)}</div>`;
+        }
+      }
+    }
+    progressEl.innerHTML = html;
+  } catch(e) {
+    progressEl.innerHTML = `<p style="color:var(--red)">Polling error: ${e.message}</p>`;
+    return;
+  }
+  if (progressEl.className.includes('open')) {
+    setTimeout(() => pollSessionProgress(projectId, progressEl), 3000);
+  }
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function checkExistingSession(projectId) {
+  const res = await api('GET', `/api/projects/${projectId}/opencode-session`);
+  if (!res || !res.active) return;
+  let progressEl = document.getElementById('session-progress');
+  if (!progressEl) {
+    progressEl = document.createElement('div');
+    progressEl.id = 'session-progress';
+    progressEl.className = 'session-progress open';
+    document.getElementById('tab-patch').appendChild(progressEl);
+  } else {
+    progressEl.className = 'session-progress open';
+  }
+  document.getElementById('patch-status').innerHTML = `<span class="badge badge-green">Running</span> Session: ${res.sessionId ? res.sessionId.slice(-8) : ''}`;
+  pollSessionProgress(projectId, progressEl);
 }
 
 // ── Git tab ──
@@ -587,6 +894,9 @@ function onPathKeydown(e) {
   } else if (e.key === 'Enter' && pathSelectedIndex >= 0) {
     e.preventDefault();
     items[pathSelectedIndex].click();
+  } else if (e.key === 'Tab' && pathSelectedIndex >= 0) {
+    e.preventDefault();
+    items[pathSelectedIndex].click();
   } else if (e.key === 'Escape') {
     hideAutocomplete();
   }
@@ -612,6 +922,62 @@ async function fetchAutocomplete(prefix) {
 function pickPath(p) {
   document.getElementById('new-path').value = p;
   hideAutocomplete();
+  document.getElementById('new-path').focus();
+}
+
+// ── Visual Folder Picker ──
+let browseHistory = [];
+
+function openFolderPicker() {
+  browseHistory = [];
+  document.getElementById('folder-modal').classList.add('open');
+  const currentPath = document.getElementById('new-path').value.trim() || '/';
+  loadFolderContents(currentPath);
+}
+
+function closeFolderPicker() {
+  document.getElementById('folder-modal').classList.remove('open');
+  browseHistory = [];
+}
+
+function browseRoot(root) {
+  browseHistory = [];
+  loadFolderContents(root);
+}
+
+function browseGoUp() {
+  const pathInput = document.getElementById('browse-path-readonly');
+  const current = pathInput.value;
+  const parent = current === '/' ? null : current.replace(/\/+$/, '').split('/').slice(0, -1).join('/') || '/';
+  if (parent) loadFolderContents(parent);
+}
+
+async function loadFolderContents(dir) {
+  const list = document.getElementById('folder-list');
+  const pathInput = document.getElementById('browse-path-readonly');
+  pathInput.value = dir;
+  list.innerHTML = '<div style="padding:12px;color:var(--text2)"><span class="spinner"></span> Loading...</div>';
+  const data = await api('GET', `/api/browse?prefix=${encodeURIComponent(dir)}`);
+  if (!data.entries || !data.entries.length) {
+    list.innerHTML = '<div style="padding:12px;color:var(--text2)">(empty folder)</div>';
+    return;
+  }
+  list.innerHTML = data.entries.map(e => {
+    const name = e.split('/').filter(Boolean).pop() || e;
+    return `<div onmousedown="navigateFolder('${e.replace(/'/g, "\\'")}')" style="padding:6px 12px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px;transition:background 0.1s" onmouseover="this.style.background='var(--bg3)'" onmouseout="this.style.background='transparent'">📁 ${name}</div>`;
+  }).join('');
+}
+
+function navigateFolder(dir) {
+  const pathInput = document.getElementById('browse-path-readonly');
+  browseHistory.push(pathInput.value);
+  loadFolderContents(dir);
+}
+
+function selectFolder() {
+  const path = document.getElementById('browse-path-readonly').value;
+  document.getElementById('new-path').value = path;
+  closeFolderPicker();
   document.getElementById('new-path').focus();
 }
 
@@ -664,6 +1030,13 @@ async function createProject() {
   closeAddModal();
   await loadProjects();
   openDetail(data.id);
+}
+
+async function deleteProject(id, name) {
+  if (!confirm(`Delete project "${name}"? This cannot be undone.`)) return;
+  await api('DELETE', `/api/projects/${id}`);
+  if (state.activeProject?.id === id) closeDetail();
+  await loadProjects();
 }
 
 loadProjects();

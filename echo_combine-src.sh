@@ -13,10 +13,10 @@ touch "$OUTPUT_FILE"
 
 append() {
     local file="$1"
-    local rel="${file#$SRC_DIR/}"
+    local mod=$(stat -c '%y' "$file")
     echo "" >> "$OUTPUT_FILE"
     printf '%*s\n' 80 '' | tr ' ' '=' >> "$OUTPUT_FILE"
-    echo "// FILE: $rel" >> "$OUTPUT_FILE"
+    echo "// FILE: $file (${mod%%.*})" >> "$OUTPUT_FILE"
     printf '%*s\n' 80 '' | tr ' ' '=' >> "$OUTPUT_FILE"
     cat "$file" >> "$OUTPUT_FILE"
 }
@@ -32,7 +32,11 @@ find "$SRC_DIR" -type f \( \
     -name '*.json' -o \
     -name '*.cfg' -o \
     -name '*.md' \
-\) | sort | while read -r f; do append "$f"; done
+\) \
+  ! -path "*/tmp/*" \
+  ! -path "*/old/*" \
+  ! -path "*/archive/*" \
+| sort | while read -r f; do append "$f"; done
 
 # project.godot
 [ -f "$SRC_DIR/project.godot" ] && append "$SRC_DIR/project.godot"

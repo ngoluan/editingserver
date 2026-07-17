@@ -8,28 +8,62 @@ OUTPUT_FILE="$OUTPUT_DIR/opendoc_combined-source.txt"
 : > "$OUTPUT_FILE"
 
 find "$SRC_DIR" -type f \
+  \( -name "*.js" -o -name "*.mjs" -o -name "*.css" -o -name "*.json" -o -name "*.jsonl" -o -name "*.html" \) \
   ! -path "*/node_modules/*" \
   ! -path "*/.git/*" \
-  ! -path "*/target/*" \
   ! -path "*/build/*" \
   ! -path "*/dist/*" \
-  ! -path "*/venv/*" \
+  ! -path "*/target/*" \
   ! -path "*/__pycache__/*" \
+  ! -path "*/venv/*" \
+  ! -path "*/vendor/*" \
+  ! -path "*/coverage/*" \
   ! -path "*/tmp/*" \
+  ! -path "*/old/*" \
+  ! -path "*/archive/*" \
+  ! -path "*/.next/*" \
+  ! -path "*/.nuxt/*" \
+  ! -path "*/.gradle/*" \
   ! -path "*/.backup/*" \
   ! -path "*/data/*" \
   ! -path "*/patches/*" \
   ! -name "package-lock.json" \
   ! -name "yarn.lock" \
+  ! -name "pnpm-lock.yaml" \
+  ! -name "bun.lock" \
+  ! -name "Cargo.lock" \
+  ! -name "Gemfile.lock" \
+  ! -name "poetry.lock" \
+  ! -name "composer.lock" \
   ! -name "*.svg" \
   ! -name "*.png" \
   ! -name "*.jpg" \
+  ! -name "*.jpeg" \
   ! -name "*.gif" \
   ! -name "*.ico" \
+  ! -name "*.woff" \
+  ! -name "*.woff2" \
+  ! -name "*.ttf" \
+  ! -name "*.eot" \
+  ! -name "*.pdf" \
+  ! -name "*.zip" \
+  ! -name "*.gz" \
+  ! -name "*.tar" \
+  ! -name "*.tgz" \
+  ! -name "*.jar" \
+  ! -name "*.class" \
+  ! -name "*.pyc" \
+  ! -name "*.pyo" \
+  ! -name "*.so" \
+  ! -name "*.dll" \
+  ! -name "*.dylib" \
+  ! -name "*.exe" \
+  ! -name "*.obj" \
+  ! -name "*.o" \
   | sort \
   | while read -r f; do
-    rel="${f#$SRC_DIR/}"
-    echo "// ===== $rel =====" >> "$OUTPUT_FILE"
+    mod=$(stat -c '%y' "$f")
+    echo "// ===== $f (${mod%%.*}) =====" >> "$OUTPUT_FILE"
     cat "$f" >> "$OUTPUT_FILE"
     echo "" >> "$OUTPUT_FILE"
   done

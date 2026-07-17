@@ -1,5 +1,6 @@
 node_modules/
 server.log
-*.combined-source.txt
+*_combined-source.txt
+.env
 combined.txt
 patches/

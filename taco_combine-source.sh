@@ -1,14 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SRC_DIR="${1:-/home/luanngo/canvasforge}"
+SRC_DIR="${1:-/home/luanngo/taco}"
 OUTPUT_DIR="${2:-/home/luanngo/server}"
-OUTPUT_FILE="$OUTPUT_DIR/canvas_combined-source.txt"
+OUTPUT_FILE="${OUTPUT_DIR}/taco_combined-source.txt"
 
-: > "$OUTPUT_FILE"
+: > "${OUTPUT_FILE}"
 
 find "$SRC_DIR" -type f \
-  \( -name "*.js" -o -name "*.jsx" -o -name "*.css" -o -name "*.html" -o -name "*.json" -o -name "*.cjs" -o -name "*.sql" -o -name "*.yml" \) \
+  \( \
+    -name "*.js" -o -name "*.mjs" \
+    -o -name "*.py" \
+    -o -name "*.css" \
+    -o -name "*.html" \
+    -o -name "*.json" \
+    -o -name "*.yaml" \
+    -o -name "*.xml" \
+    -o -name "*.sh" \
+    -o -name "*.md" \
+    -o -name "*.ejs" \
+    -o -name "*.env" \
+    -o -name "*.conf" \
+    -o -name "*.ini" \
+  \) \
   ! -path "*/node_modules/*" \
   ! -path "*/.git/*" \
   ! -path "*/build/*" \
@@ -27,6 +41,9 @@ find "$SRC_DIR" -type f \
   ! -path "*/.backup/*" \
   ! -path "*/data/*" \
   ! -path "*/patches/*" \
+  ! -path "*/.wwebjs_cache/*" \
+  ! -path "*/temp/*" \
+  ! -path "*/listings/*" \
   ! -name "package-lock.json" \
   ! -name "yarn.lock" \
   ! -name "pnpm-lock.yaml" \
@@ -63,9 +80,9 @@ find "$SRC_DIR" -type f \
   | sort \
   | while read -r f; do
     mod=$(stat -c '%y' "$f")
-    echo "// ===== $f (${mod%%.*}) =====" >> "$OUTPUT_FILE"
-    cat "$f" >> "$OUTPUT_FILE"
-    echo "" >> "$OUTPUT_FILE"
+    echo "// ===== $f (${mod%%.*}) =====" >> "${OUTPUT_FILE}"
+    cat "$f" >> "${OUTPUT_FILE}"
+    echo "" >> "${OUTPUT_FILE}"
   done
 
-echo "Done. Combined $(wc -l < "$OUTPUT_FILE") lines into $OUTPUT_FILE"
+echo "Done. Combined $(wc -l < "${OUTPUT_FILE}") lines into ${OUTPUT_FILE}"

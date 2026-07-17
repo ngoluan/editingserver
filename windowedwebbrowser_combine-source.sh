@@ -11,6 +11,9 @@ find "$SRC_DIR" -type f \( \
   -name "*.kts" -o \
   -name "*.html" \
 \) \
+  ! -path "*/tmp/*" \
+  ! -path "*/old/*" \
+  ! -path "*/archive/*" \
   ! -path "*/build/*" \
   ! -path "*/local.properties/*" \
   ! -path "*/captures/*" \
@@ -49,8 +52,8 @@ find "$SRC_DIR" -type f \( \
   ! -name "*.o" \
   | sort \
   | while read -r f; do
-    rel="${f#$SRC_DIR/}"
-    echo "// ===== $rel =====" >> "$OUTPUT_FILE"
+    mod=$(stat -c '%y' "$f")
+    echo "// ===== $f (${mod%%.*}) =====" >> "$OUTPUT_FILE"
     cat "$f" >> "$OUTPUT_FILE"
     echo "" >> "$OUTPUT_FILE"
   done

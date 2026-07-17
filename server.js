@@ -2,16 +2,29 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { exec, execSync } = require('child_process');
+const https = require('https');
 
-const PORT = 8765;
+try {
+  const envPath = path.join(__dirname, '.env');
+  if (fs.existsSync(envPath)) {
+    fs.readFileSync(envPath, 'utf8').split('\n').forEach(line => {
+      const [k, ...v] = line.split('=');
+      if (k && v.length) process.env[k.trim()] = v.join('=').trim();
+    });
+  }
+} catch {}
+
+const PORT = process.env.PORT || 8765;
 const DIR = __dirname;
 const DATA_DIR = path.join(DIR, 'data');
 const SESSIONS_DIR = path.join(DATA_DIR, 'sessions');
 const CONFIG_FILE = path.join(DIR, 'projects.json');
+const activeDeployments = new Set();
 
-const OPENCODE_SERVER_URL = process.env.OPENCODE_SERVER_URL || 'http://192.168.18.34:4096';
+const OPENCODE_SERVER_URL = process.env.OPENCODE_SERVER_URL || 'http://localhost:4096';
 const OPENCODE_SERVER_USER = process.env.OPENCODE_SERVER_USERNAME || 'luan_ngo';
 const OPENCODE_SERVER_PASS = process.env.OPENCODE_SERVER_PASSWORD || '';
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
 
 fs.mkdirSync(SESSIONS_DIR, { recursive: true });
 
@@ -71,6 +84,11 @@ function run(cmd, cwd, timeoutMs) {
       resolve({ code: err ? err.code || 1 : 0, stdout: stdout || '', stderr: stderr || '', error: err ? err.message : null });
     });
   });
+}
+
+function cleanCommand(value) {
+  if (typeof value !== 'string') return '';
+  return value.trim().slice(0, 4000);
 }
 
 function opencodeApi(method, endpoint, body) {
@@ -147,6 +165,47 @@ ${patchContent}`, 'patch');
   }
 }
 
+function generateCommitMessage(diff) {
+  return new Promise((resolve, reject) => {
+    const prompt = `Generate a concise git commit message for the following diff. Respond with ONLY the commit message (subject line, max 72 chars), no explanation, no backticks, no quotes.\n\n${diff.slice(0, 8000)}`;
+    const data = JSON.stringify({
+      model: 'deepseek-chat',
+      messages: [
+        { role: 'system', content: 'You are a helpful assistant that generates concise git commit messages.' },
+        { role: 'user', content: prompt },
+      ],
+      max_tokens: 100,
+      temperature: 0.3,
+    });
+    const options = {
+      hostname: 'api.deepseek.com',
+      path: '/v1/chat/completions',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${DEEPSEEK_API_KEY}`,
+        'Content-Length': Buffer.byteLength(data),
+      },
+    };
+    const req = https.request(options, apiRes => {
+      let body = '';
+      apiRes.on('data', chunk => body += chunk);
+      apiRes.on('end', () => {
+        try {
+          const parsed = JSON.parse(body);
+          const msg = (parsed.choices?.[0]?.message?.content || 'update').trim().replace(/^['"]|['"]$/g, '');
+          resolve(msg);
+        } catch (e) {
+          reject(new Error(`DeepSeek API error: ${body.slice(0, 200)}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.write(data);
+    req.end();
+  });
+}
+
 function logSession(projectId, entry) {
   const file = path.join(SESSIONS_DIR, `${projectId}.json`);
   let log = [];
@@ -209,7 +268,7 @@ function scanProjectForCombineScript(projectPath) {
     }
   } catch {}
 
-  const commonIgnoreDirs = ['node_modules', '.git', 'target', 'build', 'dist', 'venv', '.venv', '__pycache__', 'tmp', '.backup', 'data', 'patches', '.next', '.nuxt', 'out', '.output', 'coverage', '.nyc_output', 'vendor', '.bundle', '.gradle', 'Pods', '.build', 'elm-stuff', '_build', 'deps', '*.egg-info', '.tox', '.mypy_cache', '.pytest_cache', '.serverless', '.terraform', '.next', 'cache', 'logs', '.env', 'env'];
+  const commonIgnoreDirs = ['node_modules', '.git', 'target', 'build', 'dist', 'venv', '.venv', '__pycache__', 'tmp', '.backup', 'data', 'patches', 'old', 'archive', '.next', '.nuxt', 'out', '.output', 'coverage', '.nyc_output', 'vendor', '.bundle', '.gradle', 'Pods', '.build', 'elm-stuff', '_build', 'deps', '*.egg-info', '.tox', '.mypy_cache', '.pytest_cache', '.serverless', '.terraform', '.next', 'cache', 'logs', '.env', 'env'];
   const detectedIgnores = commonIgnoreDirs.filter(d => topEntries.includes(d));
 
   const allFiles = scanDirectory(projectPath, 6);
@@ -310,13 +369,13 @@ OUTPUT_FILE="$OUTPUT_DIR/${projectId}_combined-source.txt"
 ${findBlock} \\
   | sort \\
   | while read -r f; do
-    rel="\${f#$SRC_DIR/}"
-    echo "// ===== \$rel =====" >> "$OUTPUT_FILE"
-    cat "\$f" >> "$OUTPUT_FILE"
-    echo "" >> "$OUTPUT_FILE"
+    mod=\$(stat -c '%y' "\$f")
+    echo "// ===== \$f (\${mod%%.*}) =====" >> "\$OUTPUT_FILE"
+    cat "\$f" >> "\$OUTPUT_FILE"
+    echo "" >> "\$OUTPUT_FILE"
   done
 
-echo "Done. Combined \$(wc -l < "$OUTPUT_FILE") lines into $OUTPUT_FILE"
+echo "Done. Combined \$(wc -l < "\$OUTPUT_FILE") lines into \$OUTPUT_FILE"
 `;
 }
 
@@ -358,6 +417,8 @@ find "$SRC_DIR" -type f \\
   ! -path "*/venv/*" \\
   ! -path "*/__pycache__/*" \\
   ! -path "*/tmp/*" \\
+  ! -path "*/old/*" \\
+  ! -path "*/archive/*" \\
   ! -path "*/.backup/*" \\
   ! -path "*/data/*" \\
   ! -path "*/patches/*" \\
@@ -370,13 +431,13 @@ find "$SRC_DIR" -type f \\
   ! -name "*.ico" \\
   | sort \\
   | while read -r f; do
-    rel="\${f#$SRC_DIR/}"
-    echo "// ===== \$rel =====" >> "$OUTPUT_FILE"
-    cat "\$f" >> "$OUTPUT_FILE"
-    echo "" >> "$OUTPUT_FILE"
+    mod=\$(stat -c '%y' "\$f")
+    echo "// ===== \$f (\${mod%%.*}) =====" >> "\$OUTPUT_FILE"
+    cat "\$f" >> "\$OUTPUT_FILE"
+    echo "" >> "\$OUTPUT_FILE"
   done
 
-echo "Done. Combined \$(wc -l < "$OUTPUT_FILE") lines into $OUTPUT_FILE"
+echo "Done. Combined \$(wc -l < "\$OUTPUT_FILE") lines into \$OUTPUT_FILE"
 `;
 }
 
@@ -390,7 +451,11 @@ async function handleApi(method, url, req, res) {
     const gitPath = p.path;
     p.combinedExists = fs.existsSync(combinedPath);
     p.combinedSize = p.combinedExists ? fs.statSync(combinedPath).size : 0;
-    p.combinedLines = p.combinedExists ? fs.readFileSync(combinedPath, 'utf8').split('\n').length : 0;
+    if (p.combinedExists && p.combinedSize < 500 * 1024 * 1024) {
+      p.combinedLines = fs.readFileSync(combinedPath, 'utf8').split('\n').length;
+    } else {
+      p.combinedLines = p.combinedExists ? 0 : 0;
+    }
     p.patchExists = fs.existsSync(patchPath);
     p.gitRepo = fs.existsSync(path.join(gitPath, '.git'));
     if (p.gitRepo) {
@@ -450,6 +515,11 @@ async function handleApi(method, url, req, res) {
     return json(res, 200, { name, hasGit, extensions: [...extensions], sourceExtensions: found, fileCount: files.length });
   }
 
+  // GET /api/activity — recent actions across all projects
+  if (method === 'GET' && parts.length === 2 && parts[0] === 'api' && parts[1] === 'activity') {
+    return handleActivity(method, url, req, res);
+  }
+
   // GET /api/projects
   if (method === 'GET' && parts.length === 2 && parts[0] === 'api' && parts[1] === 'projects') {
     const data = loadProjects();
@@ -470,7 +540,9 @@ async function handleApi(method, url, req, res) {
     const combinedOutput = path.join(DIR, `${id}_combined-source.txt`);
     const patchDir = path.join(DIR, 'patches');
     const combineScript = body.combineScript || null;
-    const project = { id, name, path: folderPath, combineScript, combinedOutput, patchDir };
+    const buildCommand = cleanCommand(body.buildCommand);
+    const restartCommand = cleanCommand(body.restartCommand);
+    const project = { id, name, path: folderPath, combineScript, combinedOutput, patchDir, buildCommand, restartCommand };
     if (!combineScript) {
       const scriptPath = path.join(DIR, `${id}_combine-source.sh`);
       const scriptContent = generateCombineScript(folderPath, id, DIR);
@@ -508,6 +580,60 @@ async function handleApi(method, url, req, res) {
   const project = findProject(projectId);
   if (!project) return json(res, 404, { error: 'Project not found' });
 
+  // POST /api/projects/:id/deploy-config — update project-specific build/restart commands
+  if (method === 'POST' && action === 'deploy-config') {
+    const body = await parseBody(req);
+    const data = loadProjects();
+    const savedProject = data.projects.find(p => p.id === projectId);
+    if (!savedProject) return json(res, 404, { error: 'Project not found' });
+    savedProject.buildCommand = cleanCommand(body.buildCommand);
+    savedProject.restartCommand = cleanCommand(body.restartCommand);
+    saveProjects(data);
+    return json(res, 200, {
+      success: true,
+      buildCommand: savedProject.buildCommand,
+      restartCommand: savedProject.restartCommand,
+    });
+  }
+
+  // POST /api/projects/:id/rebuild-restart — build, then restart only after a successful build
+  if (method === 'POST' && action === 'rebuild-restart') {
+    const buildCommand = cleanCommand(project.buildCommand);
+    const restartCommand = cleanCommand(project.restartCommand);
+    if (!buildCommand || !restartCommand) {
+      return json(res, 400, { error: 'Configure both the build and restart commands first.' });
+    }
+    if (activeDeployments.has(projectId)) {
+      return json(res, 409, { error: 'A rebuild and restart is already running for this project.' });
+    }
+
+    activeDeployments.add(projectId);
+    const startedAt = Date.now();
+    try {
+      const build = await run(buildCommand, project.path, 10 * 60 * 1000);
+      if (build.code !== 0) {
+        logSession(projectId, { action: 'rebuild_restart', success: false, stage: 'build', exitCode: build.code, durationMs: Date.now() - startedAt });
+        return json(res, 500, { success: false, stage: 'build', build });
+      }
+
+      const restart = await run(restartCommand, project.path, 2 * 60 * 1000);
+      const success = restart.code === 0;
+      logSession(projectId, { action: 'rebuild_restart', success, stage: success ? 'complete' : 'restart', exitCode: restart.code, durationMs: Date.now() - startedAt });
+      return json(res, success ? 200 : 500, {
+        success,
+        stage: success ? 'complete' : 'restart',
+        durationMs: Date.now() - startedAt,
+        build,
+        restart,
+      });
+    } catch (e) {
+      logSession(projectId, { action: 'rebuild_restart', success: false, stage: 'server', error: e.message, durationMs: Date.now() - startedAt });
+      return json(res, 500, { success: false, stage: 'server', error: e.message });
+    } finally {
+      activeDeployments.delete(projectId);
+    }
+  }
+
   // POST /api/projects/:id/update-combine-script — smart scan and regenerate combine script
   if (method === 'POST' && action === 'update-combine-script') {
     try {
@@ -542,9 +668,9 @@ REQUIREMENTS:
 - Accept SRC_DIR (default: ${projectPath}) and OUTPUT_DIR (default: ${DIR}) as $1 and $2.
 - Set OUTPUT_FILE="\${OUTPUT_DIR}/${outputBasename}".
 - Empty OUTPUT_FILE with ": > \"\${OUTPUT_FILE}\"" at the start.
-- Exclude with ! -path for: node_modules .git build dist target __pycache__ venv vendor coverage tmp .next .nuxt .gradle .backup data patches
+- Exclude with ! -path for: node_modules .git build dist target __pycache__ venv vendor coverage tmp old archive .next .nuxt .gradle .backup data patches
 - Exclude with ! -name for: package-lock.json yarn.lock pnpm-lock.yaml bun.lock Cargo.lock Gemfile.lock poetry.lock composer.lock *.svg *.png *.jpg *.jpeg *.gif *.ico *.woff *.woff2 *.ttf *.eot *.pdf *.zip *.gz *.tar *.tgz *.jar *.class *.pyc *.pyo *.so *.dll *.dylib *.exe *.obj *.o
-- Sort output, prepend "// ===== relative/path =====" header before each file, then cat the file.
+- Sort output. For each file, get last modified time via \$(stat -c '%y' "\$f"), then prepend "// ===== \$f (\${mod%%.*}) =====" header before each file, then cat the file.
 - End with: echo "Done. Combined \$(wc -l < \"\${OUTPUT_FILE}\") lines into \${OUTPUT_FILE}"
 - Preserve useful existing rules when safe, replace any per-file list with wildcard rules, and mark the script executable with chmod +x.
 - Make the edits now and verify the resulting shell script with bash -n.`;
@@ -586,6 +712,8 @@ REQUIREMENTS:
   if (method === 'GET' && action === 'source') {
     const combinedPath = path.join(DIR, path.basename(project.combinedOutput));
     if (!fs.existsSync(combinedPath)) return json(res, 404, { error: 'No combined source found' });
+    const stat = fs.statSync(combinedPath);
+    if (stat.size > 500 * 1024 * 1024) return json(res, 413, { error: 'Combined source too large for inline viewing', size: stat.size });
     const content = fs.readFileSync(combinedPath, 'utf8');
     return json(res, 200, { content, lines: content.split('\n').length, size: Buffer.byteLength(content) });
   }
@@ -684,16 +812,83 @@ REQUIREMENTS:
   // GET /api/projects/:id/status
   if (method === 'GET' && action === 'status') {
     if (!fs.existsSync(path.join(project.path, '.git'))) return json(res, 400, { error: 'Not a git repository' });
-    const status = await run('git status', project.path);
-    const porcelain = await run('git status --porcelain', project.path);
-    const log = await run('git log --oneline -10', project.path);
-    const branchResult = await run('git rev-parse --abbrev-ref HEAD', project.path);
+    const [porcelainBranch, diffNumstat, diffCachedNumstat, diffShortstat, logResult] = await Promise.all([
+      run('git status --porcelain -b', project.path),
+      run('git diff --numstat', project.path),
+      run('git diff --cached --numstat', project.path),
+      run('git diff --shortstat', project.path),
+      run('git log --oneline -15', project.path),
+    ]);
+
+    let branch = '';
+    let ahead = 0;
+    let behind = 0;
+    const staged = [];
+    const unstaged = [];
+    const untracked = [];
+
+    const porcelainLines = porcelainBranch.stdout.split('\n').filter(l => l.trim());
+    for (const line of porcelainLines) {
+      if (line.startsWith('##')) {
+        const m = line.match(/## (.+?)(?:\.\.\.|$)/);
+        if (m) branch = m[1].trim();
+        const aheadM = line.match(/ahead (\d+)/);
+        if (aheadM) ahead = parseInt(aheadM[1]);
+        const behindM = line.match(/behind (\d+)/);
+        if (behindM) behind = parseInt(behindM[1]);
+        continue;
+      }
+      if (line.length < 3) continue;
+      const index = line[0];
+      const worktree = line[1];
+      const file = line.slice(3).trim();
+
+      if (index === '?' && worktree === '?') {
+        untracked.push({ file });
+      } else {
+        if (index !== ' ') staged.push({ status: index, file, additions: 0, deletions: 0 });
+        if (worktree !== ' ') unstaged.push({ status: worktree, file, additions: 0, deletions: 0 });
+      }
+    }
+
+    function parseNumstat(output) {
+      const map = {};
+      const lines = output.split('\n').filter(l => l.trim());
+      for (const ln of lines) {
+        const parts = ln.split('\t');
+        if (parts.length >= 3) {
+          const a = parts[0] === '-' ? 0 : parseInt(parts[0]) || 0;
+          const d = parts[1] === '-' ? 0 : parseInt(parts[1]) || 0;
+          map[parts[2]] = { additions: a, deletions: d };
+        }
+      }
+      return map;
+    }
+
+    const unstagedNumstatMap = parseNumstat(diffNumstat.stdout);
+    const stagedNumstatMap = parseNumstat(diffCachedNumstat.stdout);
+
+    for (const entry of unstaged) {
+      const ns = unstagedNumstatMap[entry.file];
+      if (ns) { entry.additions = ns.additions; entry.deletions = ns.deletions; }
+    }
+    for (const entry of staged) {
+      const ns = stagedNumstatMap[entry.file];
+      if (ns) { entry.additions = ns.additions; entry.deletions = ns.deletions; }
+    }
+
+    const dirty = staged.length > 0 || unstaged.length > 0 || untracked.length > 0;
+
     return json(res, 200, {
-      branch: branchResult.stdout.trim(),
-      status: status.stdout,
-      porcelain: porcelain.stdout,
-      log: log.stdout,
-      dirty: porcelain.stdout.trim().length > 0,
+      branch,
+      ahead,
+      behind,
+      dirty,
+      staged,
+      unstaged,
+      untracked,
+      log: logResult.stdout,
+      shortstat: diffShortstat.stdout,
     });
   }
 
@@ -726,6 +921,109 @@ REQUIREMENTS:
     });
   }
 
+  // POST /api/projects/:id/ai-commit-message
+  if (method === 'POST' && action === 'ai-commit-message') {
+    if (!DEEPSEEK_API_KEY) return json(res, 400, { error: 'DEEPSEEK_API_KEY not configured on server' });
+    const diff = await run('git diff', project.path);
+    const diffCached = await run('git diff --cached', project.path);
+    const combinedDiff = (diff.stdout + diffCached.stdout).trim();
+    if (!combinedDiff) {
+      const status = await run('git status --porcelain', project.path);
+      if (status.stdout.trim()) return json(res, 200, { message: 'update' });
+      return json(res, 400, { error: 'No changes to commit' });
+    }
+    try {
+      const message = await generateCommitMessage(combinedDiff);
+      return json(res, 200, { message });
+    } catch (e) {
+      return json(res, 500, { error: e.message });
+    }
+  }
+
+  // POST /api/projects/:id/push
+  if (method === 'POST' && action === 'push') {
+    const result = await run('git push', project.path);
+    logSession(projectId, { action: 'push', success: result.code === 0 });
+    return json(res, result.code === 0 ? 200 : 400, {
+      success: result.code === 0,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    });
+  }
+
+  // POST /api/projects/:id/pull
+  if (method === 'POST' && action === 'pull') {
+    const result = await run('git pull --rebase', project.path);
+    logSession(projectId, { action: 'pull', success: result.code === 0 });
+    return json(res, result.code === 0 ? 200 : 400, {
+      success: result.code === 0,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    });
+  }
+
+  // POST /api/projects/:id/stage
+  if (method === 'POST' && action === 'stage') {
+    const body = await parseBody(req);
+    const file = (body.file || '').replace(/"/g, '\\"');
+    if (!file) return json(res, 400, { error: 'File path required' });
+    const result = await run(`git add "${file}"`, project.path);
+    return json(res, result.code === 0 ? 200 : 400, {
+      success: result.code === 0,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    });
+  }
+
+  // POST /api/projects/:id/unstage
+  if (method === 'POST' && action === 'unstage') {
+    const body = await parseBody(req);
+    const file = (body.file || '').replace(/"/g, '\\"');
+    if (!file) return json(res, 400, { error: 'File path required' });
+    const result = await run(`git reset HEAD "${file}"`, project.path);
+    return json(res, result.code === 0 ? 200 : 400, {
+      success: result.code === 0,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    });
+  }
+
+  // POST /api/projects/:id/discard
+  if (method === 'POST' && action === 'discard') {
+    const body = await parseBody(req);
+    const file = (body.file || '').replace(/"/g, '\\"');
+    if (!file) return json(res, 400, { error: 'File path required' });
+    const result = await run(`git checkout -- "${file}"`, project.path);
+    return json(res, result.code === 0 ? 200 : 400, {
+      success: result.code === 0,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    });
+  }
+
+  // POST /api/projects/:id/fetch
+  if (method === 'POST' && action === 'fetch') {
+    const result = await run('git fetch', project.path);
+    logSession(projectId, { action: 'fetch', success: result.code === 0 });
+    return json(res, result.code === 0 ? 200 : 400, {
+      success: result.code === 0,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    });
+  }
+
+  // GET /api/projects/:id/diff
+  if (method === 'GET' && action === 'diff') {
+    const url = new URL(req.url, 'http://localhost');
+    const file = url.searchParams.get('file') || '';
+    const staged = url.searchParams.get('staged') === 'true';
+    if (!file) return json(res, 400, { error: 'File parameter required' });
+    const safeFile = file.replace(/"/g, '\\"');
+    const cmd = staged ? `git diff --cached -- "${safeFile}"` : `git diff -- "${safeFile}"`;
+    const result = await run(cmd, project.path);
+    return json(res, 200, { diff: result.stdout, stderr: result.stderr });
+  }
+
   // GET /api/projects/:id/sessions
   if (method === 'GET' && action === 'sessions') {
     const file = path.join(SESSIONS_DIR, `${projectId}.json`);
@@ -742,6 +1040,35 @@ REQUIREMENTS:
   }
 
   return json(res, 404, { error: 'Unknown action' });
+}
+
+async function handleActivity(method, url, req, res) {
+  if (method !== 'GET') return json(res, 405, { error: 'Method not allowed' });
+
+  const data = loadProjects();
+  const projectMap = {};
+  for (const p of data.projects) {
+    projectMap[p.id] = { id: p.id, name: p.name };
+  }
+
+  const entries = [];
+  try {
+    const files = fs.readdirSync(SESSIONS_DIR).filter(f => f.endsWith('.json'));
+    for (const f of files) {
+      const projectId = f.replace(/\.json$/, '');
+      const proj = projectMap[projectId] || { id: projectId, name: projectId };
+      try {
+        const log = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, f), 'utf8'));
+        for (const entry of log) {
+          if (entry.action === 'update_combine_script') continue;
+          entries.push({ projectId: proj.id, projectName: proj.name, ...entry });
+        }
+      } catch {}
+    }
+  } catch {}
+
+  entries.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  return json(res, 200, { entries: entries.slice(0, 60) });
 }
 
 http.createServer(async (req, res) => {

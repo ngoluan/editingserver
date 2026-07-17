@@ -1,24 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SRC_DIR="${1:-/Users/seconduser/StudioProjects/echo}"
-OUTPUT_DIR="${2:-/Users/seconduser/StudioProjects/editingserver}"
-OUTPUT_FILE="$OUTPUT_DIR/echo_combined-source.txt"
+SRC_DIR="${1:-/home/luanngo/terminal}"
+OUTPUT_DIR="${2:-/home/luanngo/server}"
+OUTPUT_FILE="$OUTPUT_DIR/terminal_combined-source.txt"
 
 : > "$OUTPUT_FILE"
 
-find "$SRC_DIR" -type f \( \
-  -name "*.ts" -o \
-  -name "*.py" -o \
-  -name "*.css" -o \
-  -name "*.html" -o \
-  -name "*.gd" \
-\) \
+find "$SRC_DIR" -type f \( -name "*.js" -o -name "*.mjs" -o -name "*.rs" -o -name "*.css" -o -name "*.html" -o -name "*.sh" \) \
+  ! -path "*/node_modules/*" \
+  ! -path "*/.git/*" \
+  ! -path "*/build/*" \
+  ! -path "*/dist/*" \
+  ! -path "*/target/*" \
+  ! -path "*/__pycache__/*" \
+  ! -path "*/venv/*" \
+  ! -path "*/vendor/*" \
+  ! -path "*/coverage/*" \
   ! -path "*/tmp/*" \
   ! -path "*/old/*" \
   ! -path "*/archive/*" \
-  ! -path "*/node_modules/*" \
-  ! -path "*/dist/*" \
+  ! -path "*/.next/*" \
+  ! -path "*/.nuxt/*" \
+  ! -path "*/.gradle/*" \
+  ! -path "*/.backup/*" \
+  ! -path "*/data/*" \
+  ! -path "*/patches/*" \
   ! -name "package-lock.json" \
   ! -name "yarn.lock" \
   ! -name "pnpm-lock.yaml" \

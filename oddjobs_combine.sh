@@ -13,11 +13,13 @@ find "$SRC_DIR" -type f \
   ! -path "*/.git/*" \
   ! -path "*/data/*" \
   ! -path "*/tmp/*" \
+  ! -path "*/old/*" \
+  ! -path "*/archive/*" \
   ! -name "package-lock.json" \
   | sort \
   | while read -r f; do
-    rel="${f#$SRC_DIR/}"
-    echo "// ===== $rel =====" >> "$OUTPUT"
+    mod=$(stat -c '%y' "$f")
+    echo "// ===== $f (${mod%%.*}) =====" >> "$OUTPUT"
     cat "$f" >> "$OUTPUT"
     echo "" >> "$OUTPUT"
   done

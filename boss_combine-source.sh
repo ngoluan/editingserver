@@ -1,14 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SRC_DIR="${1:-/home/luanngo/canvasforge}"
+SRC_DIR="${1:-/home/luanngo/boss}"
 OUTPUT_DIR="${2:-/home/luanngo/server}"
-OUTPUT_FILE="$OUTPUT_DIR/canvas_combined-source.txt"
+OUTPUT_FILE="${OUTPUT_DIR}/boss_combined-source.txt"
 
-: > "$OUTPUT_FILE"
+: > "${OUTPUT_FILE}"
 
-find "$SRC_DIR" -type f \
-  \( -name "*.js" -o -name "*.jsx" -o -name "*.css" -o -name "*.html" -o -name "*.json" -o -name "*.cjs" -o -name "*.sql" -o -name "*.yml" \) \
+find "$SRC_DIR" -type f \( \
+    -name "*.ts" -o -name "*.js" -o -name "*.jsx" -o -name "*.mjs" \
+    -o -name "*.py" -o -name "*.java" -o -name "*.swift" -o -name "*.m" \
+    -o -name "*.css" -o -name "*.html" -o -name "*.json" -o -name "*.xml" \
+    -o -name "*.prisma" -o -name "*.sql" -o -name "*.sh" -o -name "*.bat" \
+    -o -name "*.gradle" -o -name "*.properties" -o -name "*.conf" \
+    -o -name "*.env" -o -name "*.ini" -o -name "*.toml" -o -name "*.yml" \
+    -o -name "*.yaml" -o -name "*.txt" \
+    -o -name "*.plist" -o -name "*.podspec" -o -name "*.storyboard" \
+    -o -name "*.entitlements" -o -name "*.xcscheme" -o -name "*.pbxproj" \
+    -o -name "*.iml" -o -name "*.gitignore" -o -name "*.development" \
+    -o -name "*.clinerules" -o -name "*.cursorrules" -o -name "*.codex" \
+    -o -name "Dockerfile" -o -name "Makefile" -o -name "Podfile" \
+    -o -name "README" -o -name "gradlew" \
+  \) \
   ! -path "*/node_modules/*" \
   ! -path "*/.git/*" \
   ! -path "*/build/*" \
@@ -18,14 +31,24 @@ find "$SRC_DIR" -type f \
   ! -path "*/venv/*" \
   ! -path "*/vendor/*" \
   ! -path "*/coverage/*" \
+  ! -path "*/test-results/*" \
+  ! -path "*/docs/*" \
+  ! -path "*/migrations/*" \
   ! -path "*/tmp/*" \
   ! -path "*/old/*" \
   ! -path "*/archive/*" \
   ! -path "*/.next/*" \
   ! -path "*/.nuxt/*" \
   ! -path "*/.gradle/*" \
+  ! -path "*/.claude/*" \
+  ! -path "*/.vscode/*" \
+  ! -path "*/.kilo/*" \
+  ! -path "*/.dependencygraph/*" \
   ! -path "*/.backup/*" \
   ! -path "*/data/*" \
+  ! -path "*/uploads/*" \
+  ! -path "*/logs/*" \
+  ! -path "*/models/*" \
   ! -path "*/patches/*" \
   ! -name "package-lock.json" \
   ! -name "yarn.lock" \
@@ -68,4 +91,4 @@ find "$SRC_DIR" -type f \
     echo "" >> "$OUTPUT_FILE"
   done
 
-echo "Done. Combined $(wc -l < "$OUTPUT_FILE") lines into $OUTPUT_FILE"
+echo "Done. Combined $(wc -l < "${OUTPUT_FILE}") lines into ${OUTPUT_FILE}"

@@ -1,30 +1,73 @@
 {
   "projects": [
     {
-      "id": "windowedwebbrowser",
-      "name": "WindowedWebBrowser",
-      "path": "/Users/seconduser/StudioProjects/WindowWeb",
-      "combineScript": "/Users/seconduser/StudioProjects/editingserver/windowedwebbrowser_combine-source.sh",
-      "combinedOutput": "/Users/seconduser/StudioProjects/editingserver/windowedwebbrowser_combined-source.txt",
-      "patchDir": "/Users/seconduser/StudioProjects/editingserver/patches"
-    },
-    {
-      "id": "echo",
-      "name": "Echo",
-      "path": "/Users/seconduser/StudioProjects/echo",
-      "combineScript": "/Users/seconduser/StudioProjects/editingserver/echo_combine-source.sh",
-      "combinedOutput": "/Users/seconduser/StudioProjects/editingserver/echo_combined-source.txt",
-      "patchDir": "/Users/seconduser/StudioProjects/editingserver/patches"
-    },
-    {
       "id": "aiiptv",
       "name": "AIIPTV",
-      "path": "/Users/seconduser/StudioProjects/aiiptv",
-      "combineScript": "/Users/seconduser/StudioProjects/editingserver/aiiptv_combine-source.sh",
-      "combinedOutput": "/Users/seconduser/StudioProjects/editingserver/aiiptv_combined-source.txt",
-      "patchDir": "/Users/seconduser/StudioProjects/editingserver/patches",
-      "opencodeSessionId": "ses_0b0efa6f4ffea64k8fq1bTPSeM",
-      "opencodeSessionStartedAt": "2026-07-11T02:44:59.290Z",
+      "path": "/home/luanngo/aiiptv",
+      "combineScript": "/home/luanngo/server/aiiptv_combine-source.sh",
+      "combinedOutput": "/home/luanngo/server/aiiptv_combined-source.txt",
+      "patchDir": "/home/luanngo/server/patches",
+      "opencodeSessionId": "ses_0a93272f8ffe1XbT6PKS63RfBA",
+      "opencodeSessionStartedAt": "2026-07-12T14:48:59.420Z",
+      "opencodeJobType": "combine-script"
+    },
+    {
+      "id": "taco",
+      "name": "taco",
+      "path": "/home/luanngo/taco",
+      "combineScript": "/home/luanngo/server/taco_combine-source.sh",
+      "combinedOutput": "/home/luanngo/server/taco_combined-source.txt",
+      "patchDir": "/home/luanngo/server/patches",
+      "opencodeSessionId": "ses_0a69cf257ffeZzeFkDVv1eXO0V",
+      "opencodeSessionStartedAt": "2026-07-13T02:51:31.636Z",
+      "opencodeJobType": "patch"
+    },
+    {
+      "id": "canvas",
+      "name": "canvas",
+      "path": "/home/luanngo/canvasforge",
+      "combineScript": "/home/luanngo/server/canvas_combine-source.sh",
+      "combinedOutput": "/home/luanngo/server/canvas_combined-source.txt",
+      "patchDir": "/home/luanngo/server/patches",
+      "opencodeSessionId": "ses_096fae7c7ffe6NDQdsmRdWfphW",
+      "opencodeSessionStartedAt": "2026-07-16T03:42:49.415Z",
+      "opencodeJobType": "patch",
+      "buildCommand": "npm run build",
+      "restartCommand": "pm2 restart canvasforge"
+    },
+    {
+      "id": "opendoc",
+      "name": "opendoc",
+      "path": "/home/luanngo/opendoc",
+      "combineScript": "/home/luanngo/server/opendoc_combine-source.sh",
+      "combinedOutput": "/home/luanngo/server/opendoc_combined-source.txt",
+      "patchDir": "/home/luanngo/server/patches",
+      "opencodeSessionId": "ses_09cb19949ffeJUamPwD81fEaQQ",
+      "opencodeSessionStartedAt": "2026-07-15T01:05:10.343Z",
+      "opencodeJobType": "patch"
+    },
+    {
+      "id": "boss",
+      "name": "Boss",
+      "path": "/home/luanngo/boss",
+      "combineScript": "/home/luanngo/server/boss_combine-source.sh",
+      "combinedOutput": "/home/luanngo/server/boss_combined-source.txt",
+      "patchDir": "/home/luanngo/server/patches",
+      "opencodeSessionId": "ses_0a3c35211ffeaOsq7ckjx6az1c",
+      "opencodeSessionStartedAt": "2026-07-13T16:08:28.406Z",
+      "opencodeJobType": "patch",
+      "buildCommand": "./scripts/prod-build-restart.sh",
+      "restartCommand": "true"
+    },
+    {
+      "id": "terminal",
+      "name": "Terminal",
+      "path": "/home/luanngo/terminal",
+      "combineScript": "/home/luanngo/server/terminal_combine-source.sh",
+      "combinedOutput": "/home/luanngo/server/terminal_combined-source.txt",
+      "patchDir": "/home/luanngo/server/patches",
+      "opencodeSessionId": "ses_0a12bf110ffeuMoPIlJNX1wTq3",
+      "opencodeSessionStartedAt": "2026-07-14T04:13:03.611Z",
       "opencodeJobType": "patch"
     }
   ]

@@ -1,25 +1,39 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SRC_DIR="${1:-/Users/seconduser/StudioProjects/aiiptv}"
-OUTPUT_DIR="${2:-/Users/seconduser/StudioProjects/editingserver}"
+SRC_DIR="${1:-/home/luanngo/aiiptv}"
+OUTPUT_DIR="${2:-/home/luanngo/server}"
 OUTPUT_FILE="$OUTPUT_DIR/aiiptv_combined-source.txt"
 
 : > "$OUTPUT_FILE"
 
-find "$SRC_DIR" -type f \( \
-  -name "*.js" -o \
-  -name "*.ts" -o \
-  -name "*.kts" -o \
-  -name "*.prisma" -o \
-  -name "*.sql" \
-\) \
-  ! -path "*/local.properties/*" \
-  ! -path "*/server/node_modules/*" \
-  ! -path "*/server/dist/*" \
-  ! -path "*/server/.env/*" \
-  ! -path "*/server/prisma/*.db/*" \
-  ! -path "*/server/prisma/*.db-journal/*" \
+find "$SRC_DIR" -type f \
+  \( -name "*.kt" -o -name "*.ts" -o -name "*.js" -o -name "*.jsx" -o -name "*.tsx" \
+     -o -name "*.mjs" -o -name "*.cjs" -o -name "*.kts" -o -name "*.java" \
+     -o -name "*.xml" -o -name "*.json" -o -name "*.yaml" -o -name "*.yml" \
+     -o -name "*.toml" -o -name "*.properties" -o -name "*.env" -o -name "*.example" \
+     -o -name "*.prisma" -o -name "*.sql" \
+     -o -name "*.md" -o -name "*.txt" -o -name "*.gitignore" \
+     -o -name "*.sh" -o -name "*.bash" -o -name "*.bat" \
+     -o -name "*.pro" -o -name "*.gradle" -o -name "*.groovy" \) \
+  ! -path "*/node_modules/*" \
+  ! -path "*/.git/*" \
+  ! -path "*/build/*" \
+  ! -path "*/dist/*" \
+  ! -path "*/target/*" \
+  ! -path "*/__pycache__/*" \
+  ! -path "*/venv/*" \
+  ! -path "*/vendor/*" \
+  ! -path "*/coverage/*" \
+  ! -path "*/tmp/*" \
+  ! -path "*/old/*" \
+  ! -path "*/archive/*" \
+  ! -path "*/.next/*" \
+  ! -path "*/.nuxt/*" \
+  ! -path "*/.gradle/*" \
+  ! -path "*/.backup/*" \
+  ! -path "*/data/*" \
+  ! -path "*/patches/*" \
   ! -name "package-lock.json" \
   ! -name "yarn.lock" \
   ! -name "pnpm-lock.yaml" \
@@ -55,8 +69,8 @@ find "$SRC_DIR" -type f \( \
   ! -name "*.o" \
   | sort \
   | while read -r f; do
-    rel="${f#$SRC_DIR/}"
-    echo "// ===== $rel =====" >> "$OUTPUT_FILE"
+    mod=$(stat -c '%y' "$f")
+    echo "// ===== $f (${mod%%.*}) =====" >> "$OUTPUT_FILE"
     cat "$f" >> "$OUTPUT_FILE"
     echo "" >> "$OUTPUT_FILE"
   done

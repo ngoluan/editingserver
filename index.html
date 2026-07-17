@@ -32,6 +32,8 @@ body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 .btn:hover { background: var(--border); }
 .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
 .btn-primary:hover { filter: brightness(1.1); }
+.btn-green { background: var(--green); border-color: var(--green); color: #fff; }
+.btn-green:hover { filter: brightness(1.1); }
 .btn-sm { padding: 4px 10px; font-size: 12px; }
 .btn-icon { padding: 5px 8px; font-size: 14px; line-height: 1; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -101,7 +103,7 @@ pre.output {
   font-family: 'SF Mono', 'Fira Code', monospace; line-height: 1.5; white-space: pre-wrap; word-break: break-all;
 }
 .stats { display: flex; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
-.stat { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; min-width: 100px; border: 1px solid var(--border); }
+.stat { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; min-width: 100px; }
 .stat .val { font-size: 22px; font-weight: 700; }
 .stat .label { font-size: 11px; color: var(--text2); margin-top: 2px; }
 .action-row { display: flex; gap: 8px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
@@ -130,6 +132,8 @@ pre.output {
 .session-item .action.patch_save { color: var(--text2); }
 .session-item .action.apply_patch { color: var(--green); }
 .session-item .action.apply_opencode { color: var(--accent); }
+.session-item .action.push { color: var(--green); }
+.session-item .action.pull { color: var(--accent); }
 .session-item .detail { color: var(--text2); }
 
 /* Modal */
@@ -204,6 +208,37 @@ pre.output {
   border-radius: 4px; font-size: 11px; color: var(--text2); font-style: italic;
 }
 
+/* Git file changes */
+.file-changes-section { margin-bottom: 16px; }
+.file-changes-section h4 { font-size: 12px; text-transform: uppercase; color: var(--text2); margin-bottom: 6px; letter-spacing: 0.5px; font-weight: 600; }
+.file-changes-section h4 .count { font-weight: 700; color: var(--text); }
+.file-row {
+  display: flex; align-items: center; gap: 8px; padding: 5px 8px;
+  font-size: 12px; font-family: 'SF Mono', 'Fira Code', monospace;
+  border-radius: 4px;
+}
+.file-row:hover { background: var(--bg3); }
+.file-row .status { font-weight: 700; min-width: 18px; }
+.file-row .status.M { color: var(--yellow); }
+.file-row .status.A { color: var(--green); }
+.file-row .status.D { color: var(--red); }
+.file-row .status.R { color: var(--accent); }
+.file-row .status.\? { color: var(--text2); }
+.file-row .filename { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-row .adds { color: var(--green); min-width: 40px; text-align: right; }
+.file-row .dels { color: var(--red); min-width: 40px; text-align: right; }
+.file-row .actions { display: flex; gap: 4px; flex-shrink: 0; }
+.diff-viewer {
+  margin: 8px 0; padding: 10px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; max-height: 350px; overflow: auto;
+  font-family: 'SF Mono', 'Fira Code', monospace; font-size: 11px; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-all;
+}
+.diff-viewer .add { color: var(--green); }
+.diff-viewer .del { color: var(--red); }
+.diff-viewer .hdr { color: var(--accent); }
+.git-toolbar { margin-bottom: 16px; }
+
 /* Dashboard shell */
 .header { min-height: 68px; padding: 14px 28px; background: #111720; }
 .brand-kicker { display:block; color:var(--accent); font-size:10px; letter-spacing:1.8px; text-transform:uppercase; margin-bottom:2px; }
@@ -220,12 +255,59 @@ pre.output {
 .detail-panel.open { display:flex; }
 .workspace-empty { display:flex; align-items:center; justify-content:center; color:var(--text2); border:1px dashed var(--border); border-radius:12px; padding:40px; text-align:center; }
 .job-banner { display:flex; align-items:center; gap:10px; padding:10px 12px; background:rgba(88,166,255,.08); border:1px solid rgba(88,166,255,.25); border-radius:8px; margin-bottom:12px; }
+.activity-log {
+  padding: 0 24px 8px; min-height: 0;
+}
+.activity-log-header {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+}
+.activity-log-header h3 {
+  font-size: 12px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.8px; color: var(--text2); margin: 0;
+}
+.activity-log-header .count { font-size: 11px; color: var(--text2); }
+.activity-log-list {
+  display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px;
+  scroll-behavior: smooth;
+}
+.activity-item {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 8px; font-size: 12px; white-space: nowrap;
+  transition: border-color 0.15s;
+}
+.activity-item:hover { border-color: #484f58; }
+.activity-item .proj-name { color: var(--accent); font-weight: 600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+.activity-item .action-tag {
+  display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 10px;
+  font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;
+}
+.activity-item .action-tag.combine { background: #1a2a3a; color: var(--accent); }
+.activity-item .action-tag.commit { background: #1a3a2a; color: var(--green); }
+.activity-item .action-tag.merge { background: #3a321a; color: var(--yellow); }
+.activity-item .action-tag.push,
+.activity-item .action-tag.pull,
+.activity-item .action-tag.fetch { background: #1a3a2a; color: var(--green); }
+.activity-item .action-tag.patch_save,
+.activity-item .action-tag.apply_patch,
+.activity-item .action-tag.apply_opencode { background: #1a2a3a; color: var(--accent); }
+.activity-item .action-tag.ai_smart_update,
+.activity-item .action-tag.update_combine_script { background: #2a1a3a; color: #bc8cff; }
+.activity-item .action-tag.rebuild_restart { background: #1a3a2a; color: var(--green); }
+.activity-item .detail-text { color: var(--text2); max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.activity-item .time-text { color: var(--text2); font-size: 11px; min-width: 70px; }
+.activity-item .status-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.activity-item .status-dot.ok { background: var(--green); }
+.activity-item .status-dot.fail { background: var(--red); }
+
 @media (max-width: 850px) {
   body { height:auto; min-height:100vh; }
   .dashboard-summary { grid-template-columns:repeat(2,1fr); }
   .workspace { grid-template-columns:1fr; }
   .project-rail { max-height:420px; }
   .detail-panel { min-height:620px; }
+  .activity-log-list { flex-wrap: wrap; overflow-x: hidden; }
+  .activity-item { flex: 1 1 auto; min-width: 200px; }
 }
 </style>
 </head>
@@ -237,6 +319,14 @@ pre.output {
 </div>
 
 <div class="dashboard-summary" id="dashboard-summary"></div>
+<div class="activity-log" id="activity-log">
+  <div class="activity-log-header">
+    <h3>Recent Activity</h3>
+    <span class="count" id="activity-count"></span>
+    <span id="activity-status" style="font-size:11px;color:var(--text2)"></span>
+  </div>
+  <div class="activity-log-list" id="activity-log-list"></div>
+</div>
 <div class="workspace">
 <aside class="project-rail">
   <div class="rail-heading">Projects</div>
@@ -289,9 +379,40 @@ pre.output {
       <input type="text" id="new-script" placeholder="/path/to/combine-script.sh" />
       <div class="form-hint">Leave empty to auto-generate a basic script</div>
     </div>
+    <div class="form-group">
+      <label>Build command (optional)</label>
+      <input type="text" id="new-build-command" placeholder="npm run build" />
+    </div>
+    <div class="form-group">
+      <label>Restart command (optional)</label>
+      <input type="text" id="new-restart-command" placeholder="pm2 restart canvasforge" />
+      <div class="form-hint">Commands run in the project folder. Both are required to enable Rebuild &amp; Restart.</div>
+    </div>
     <div class="modal-actions">
       <button class="btn" onclick="closeAddModal()">Cancel</button>
       <button class="btn btn-primary" onclick="createProject()">Create</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="deploy-modal">
+  <div class="modal" style="width:700px">
+    <h2>Rebuild &amp; Restart <span id="deploy-project-name" style="color:var(--text2);font-weight:400"></span></h2>
+    <div class="form-group">
+      <label>Build command</label>
+      <input type="text" id="deploy-build-command" placeholder="npm run build" />
+    </div>
+    <div class="form-group">
+      <label>Restart command</label>
+      <input type="text" id="deploy-restart-command" placeholder="pm2 restart canvasforge" />
+      <div class="form-hint">The restart runs only if the build succeeds. Both commands run from the project's folder.</div>
+    </div>
+    <div id="deploy-status" class="status-line"></div>
+    <pre class="output" id="deploy-output" style="display:none;max-height:300px"></pre>
+    <div class="modal-actions">
+      <button class="btn" id="deploy-close-btn" onclick="closeDeployModal()">Close</button>
+      <button class="btn" id="deploy-save-btn" onclick="saveDeployConfig()">Save commands</button>
+      <button class="btn btn-green" id="deploy-run-btn" onclick="runRebuildRestart()">▶ Rebuild &amp; Restart</button>
     </div>
   </div>
 </div>
@@ -334,6 +455,7 @@ async function loadProjects() {
   const data = await api('GET', '/api/projects');
   state.projects = data.projects || [];
   renderCards();
+  refreshActivityLog();
   if (state.activeProject) {
     const stillExists = state.projects.find(p => p.id === state.activeProject.id);
     if (stillExists) { openDetail(stillExists.id); }
@@ -373,6 +495,7 @@ function renderCards() {
       <div class="card-path">${p.path}</div>
       <div class="card-actions">
         <button class="btn btn-sm" onclick="event.stopPropagation();runQuickCombine('${p.id}')">⟳ Combine</button>
+        <button class="btn btn-sm${p.buildCommand && p.restartCommand ? ' btn-green' : ''}" onclick="event.stopPropagation();openDeployModal('${p.id}')">${p.buildCommand && p.restartCommand ? '▶ Deploy' : '⚙ Deploy'}</button>
         <button class="btn btn-sm" onclick="event.stopPropagation();uploadAndApplyPatch('${p.id}')">🩹 Patch</button>
         <button class="btn btn-sm" onclick="event.stopPropagation();openDetail('${p.id}','git')">⎇ Git</button>
         <button class="btn btn-sm" style="color:var(--red)" onclick="event.stopPropagation();deleteProject('${p.id}','${p.name}')">🗑</button>
@@ -764,23 +887,38 @@ function renderGit() {
   const el = document.getElementById('tab-git');
   el.innerHTML = `
     <h2>Git</h2>
-    <div class="stats">
-      <div class="stat"><div class="val" id="g-branch">—</div><div class="label">Branch</div></div>
-      <div class="stat"><div class="val" id="g-status">—</div><div class="label">Status</div></div>
+    <div class="git-toolbar">
+      <div class="stats" id="git-stats">
+        <div class="stat"><div class="val">—</div><div class="label">Branch</div></div>
+      </div>
+      <div class="action-row">
+        <button class="btn btn-primary" onclick="runPull()">⬇ Pull</button>
+        <button class="btn btn-primary" onclick="runFetch()">↻ Fetch</button>
+        <button class="btn btn-primary" onclick="runPush()">⬆ Push</button>
+        <div class="spacer"></div>
+        <button class="btn btn-sm" onclick="loadGitStatus()">🔄 Refresh</button>
+      </div>
     </div>
+
     <h3>Commit</h3>
     <div style="display:flex;gap:8px;margin-bottom:16px">
-      <input type="text" id="commit-msg" placeholder="Commit message..." style="flex:1" />
+      <input type="text" id="commit-msg" placeholder="Commit message..." style="flex:1" onkeydown="if(event.key==='Enter')runCommit()" />
+      <button class="btn" onclick="runAiCommitMessage()" title="Generate message with AI">🤖 AI</button>
       <button class="btn btn-green" onclick="runCommit()">Commit</button>
     </div>
+
     <h3>Merge</h3>
     <div style="display:flex;gap:8px;margin-bottom:16px">
       <input type="text" id="merge-branch" placeholder="Branch to merge" style="flex:1" />
-      <button class="btn btn-primary" onclick="runMerge()">Merge</button>
+      <button class="btn" onclick="runMerge()">Merge</button>
     </div>
+
     <span id="git-status-line" class="status-line"></span>
-    <h3>Status Output</h3>
-    <pre class="output" id="git-output">Loading...</pre>
+
+    <div id="git-file-changes"></div>
+
+    <h3>Recent Commits</h3>
+    <pre class="output" id="git-log" style="max-height:200px"></pre>
   `;
   loadGitStatus();
 }
@@ -789,29 +927,200 @@ async function loadGitStatus() {
   const p = state.activeProject;
   if (!p) return;
   const data = await api('GET', `/api/projects/${p.id}/status`);
-  const el = document.getElementById('git-output');
-  if (data.error) { el.textContent = data.error; return; }
-  document.getElementById('g-branch').textContent = data.branch || '—';
-  document.getElementById('g-status').textContent = data.dirty ? '⚠ Modified' : '✓ Clean';
-  el.textContent = data.status || '(clean)';
+  const statsEl = document.getElementById('git-stats');
+  const filesEl = document.getElementById('git-file-changes');
+  const logEl = document.getElementById('git-log');
+
+  if (data.error) {
+    statsEl.innerHTML = `<span class="badge badge-red">Error</span> ${escapeHtml(data.error)}`;
+    if (logEl) logEl.textContent = '';
+    return;
+  }
+
+  let aheadBehind = '';
+  if (data.ahead) aheadBehind += ` <span style="color:var(--accent);font-size:13px">↑${data.ahead}</span>`;
+  if (data.behind) aheadBehind += ` <span style="color:var(--yellow);font-size:13px">↓${data.behind}</span>`;
+
+  const totalAdded = data.staged.reduce((s, f) => s + f.additions, 0) + data.unstaged.reduce((s, f) => s + f.additions, 0);
+  const totalDeleted = data.staged.reduce((s, f) => s + f.deletions, 0) + data.unstaged.reduce((s, f) => s + f.deletions, 0);
+  const totalFiles = data.staged.length + data.unstaged.length + data.untracked.length;
+
+  let statsHtml = `
+    <div class="stat"><div class="val">${escapeHtml(data.branch || '—')}${aheadBehind}</div><div class="label">Branch</div></div>
+    <div class="stat"><div class="val" style="color:${data.dirty ? 'var(--yellow)' : 'var(--green)'}">${data.dirty ? 'Modified' : '✓ Clean'}</div><div class="label">Status</div></div>`;
+  if (totalAdded > 0) statsHtml += `<div class="stat"><div class="val" style="color:var(--green)">+${totalAdded}</div><div class="label">Added</div></div>`;
+  if (totalDeleted > 0) statsHtml += `<div class="stat"><div class="val" style="color:var(--red)">−${totalDeleted}</div><div class="label">Deleted</div></div>`;
+  if (totalFiles > 0) statsHtml += `<div class="stat"><div class="val">${totalFiles}</div><div class="label">Files</div></div>`;
+  if (data.shortstat) statsHtml += `<div class="stat"><div class="val" style="font-size:13px">${escapeHtml(data.shortstat.replace(/^\s+/, ''))}</div><div class="label">Changes</div></div>`;
+  statsEl.innerHTML = statsHtml;
+
+  let html = '';
+  if (data.staged.length) {
+    html += `<div class="file-changes-section"><h4>Staged <span class="count">(${data.staged.length})</span></h4>`;
+    for (const f of data.staged) html += renderFileRow(f, 'staged');
+    html += `</div>`;
+  }
+  if (data.unstaged.length) {
+    html += `<div class="file-changes-section"><h4>Changes <span class="count">(${data.unstaged.length})</span></h4>`;
+    for (const f of data.unstaged) html += renderFileRow(f, 'unstaged');
+    html += `</div>`;
+  }
+  if (data.untracked.length) {
+    html += `<div class="file-changes-section"><h4>Untracked <span class="count">(${data.untracked.length})</span></h4>`;
+    for (const f of data.untracked) {
+      html += `<div class="file-row">
+        <span class="status ?" style="color:var(--text2)">??</span>
+        <span class="filename">${escapeHtml(f.file)}</span>
+        <span class="actions">
+          <button class="btn btn-sm" onclick="stageFile('${encodeURIComponent(f.file)}')">Stage</button>
+        </span>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+  if (!html) html = '<div style="color:var(--text2);padding:16px 0">Working tree clean</div>';
+  filesEl.innerHTML = html;
+
+  logEl.textContent = data.log || '(no commits yet)';
+}
+
+function renderFileRow(f, type) {
+  const statusLabels = { M: 'M', A: 'A', D: 'D', R: 'R', C: 'C', U: 'U' };
+  const statusColors = { M: 'var(--yellow)', A: 'var(--green)', D: 'var(--red)', R: 'var(--accent)', C: 'var(--accent)', U: 'var(--red)' };
+  const status = f.status || ' ';
+  const color = statusColors[status] || 'var(--text2)';
+  const label = statusLabels[status] || status;
+
+  let adds = '', dels = '';
+  if (f.additions > 0 || f.deletions > 0) {
+    if (f.additions > 0) adds = `<span class="adds">+${f.additions}</span>`;
+    if (f.deletions > 0) dels = `<span class="dels">−${f.deletions}</span>`;
+  }
+
+  let actions = '';
+  const enc = encodeURIComponent(f.file);
+  if (type === 'staged') {
+    actions = `<button class="btn btn-sm" onclick="unstageFile('${enc}')">Unstage</button>
+      <button class="btn btn-sm" onclick="viewDiff('${enc}',true,event)">Diff</button>`;
+  } else {
+    actions = `<button class="btn btn-sm" onclick="stageFile('${enc}')">Stage</button>
+      <button class="btn btn-sm" style="color:var(--red)" onclick="discardFile('${enc}')">Discard</button>
+      <button class="btn btn-sm" onclick="viewDiff('${enc}',false,event)">Diff</button>`;
+  }
+
+  return `<div class="file-row">
+    <span class="status ${label}" style="color:${color}">${label}</span>
+    <span class="filename">${escapeHtml(f.file)}</span>
+    ${adds}${dels}
+    <span class="actions">${actions}</span>
+  </div>`;
+}
+
+async function stageFile(enc) {
+  const p = state.activeProject;
+  if (!p) return;
+  const file = decodeURIComponent(enc);
+  setStatusLine(`<span class="spinner"></span> Staging ${escapeHtml(file)}...`);
+  const data = await api('POST', `/api/projects/${p.id}/stage`, { file });
+  if (data.success) { loadGitStatus(); }
+  else { setStatusLine(`<span class="badge badge-red">Error</span> ${escapeHtml(data.stderr || 'Failed')}`, 3000); }
+}
+
+async function unstageFile(enc) {
+  const p = state.activeProject;
+  if (!p) return;
+  const file = decodeURIComponent(enc);
+  setStatusLine(`<span class="spinner"></span> Unstaging ${escapeHtml(file)}...`);
+  const data = await api('POST', `/api/projects/${p.id}/unstage`, { file });
+  if (data.success) { loadGitStatus(); }
+  else { setStatusLine(`<span class="badge badge-red">Error</span> ${escapeHtml(data.stderr || 'Failed')}`, 3000); }
+}
+
+async function discardFile(enc) {
+  const p = state.activeProject;
+  if (!p) return;
+  const file = decodeURIComponent(enc);
+  if (!confirm(`Discard all changes to ${file}? This cannot be undone.`)) return;
+  setStatusLine(`<span class="spinner"></span> Discarding ${escapeHtml(file)}...`);
+  const data = await api('POST', `/api/projects/${p.id}/discard`, { file });
+  if (data.success) { loadGitStatus(); }
+  else { setStatusLine(`<span class="badge badge-red">Error</span> ${escapeHtml(data.stderr || 'Failed')}`, 3000); }
+}
+
+async function runFetch() {
+  const p = state.activeProject;
+  if (!p) return;
+  setStatusLine('<span class="spinner"></span> Fetching...');
+  const data = await api('POST', `/api/projects/${p.id}/fetch`);
+  if (data.success) {
+    setStatusLine(`<span class="badge badge-green">Fetched</span> ${escapeHtml(data.stdout || '')}`, 4000);
+    loadGitStatus();
+  } else {
+    setStatusLine(`<span class="badge badge-red">Error</span> ${escapeHtml(data.stderr || data.error || 'Fetch failed')}`, 4000);
+  }
+}
+
+async function viewDiff(enc, staged, event) {
+  const p = state.activeProject;
+  if (!p) return;
+  const file = decodeURIComponent(enc);
+
+  const existingId = 'diff-' + file.replace(/[^a-zA-Z0-9]/g, '_');
+  const existing = document.getElementById(existingId);
+  if (existing) { existing.remove(); return; }
+
+  const row = event && event.target ? event.target.closest('.file-row') : null;
+  const container = row ? row.parentElement : document.getElementById('git-file-changes');
+
+  const diffEl = document.createElement('div');
+  diffEl.id = existingId;
+  diffEl.className = 'diff-viewer';
+  diffEl.innerHTML = '<span class="spinner"></span> Loading diff...';
+  if (row) { row.after(diffEl); }
+  else { container.appendChild(diffEl); }
+
+  const params = `?file=${encodeURIComponent(file)}&staged=${staged}`;
+  const data = await api('GET', `/api/projects/${p.id}/diff${params}`);
+
+  if (data.error) {
+    diffEl.innerHTML = `<span style="color:var(--red)">${escapeHtml(data.error)}</span>`;
+  } else {
+    diffEl.innerHTML = formatDiff(data.diff || '(no diff)');
+  }
+}
+
+function formatDiff(diff) {
+  return escapeHtml(diff).split('\n').map(line => {
+    if (line.startsWith('+')) return `<span class="add">${line}</span>`;
+    if (line.startsWith('-')) return `<span class="del">${line}</span>`;
+    if (line.startsWith('@@') || line.startsWith('diff ') || line.startsWith('--- ') || line.startsWith('+++ ') || line.startsWith('index '))
+      return `<span class="hdr">${line}</span>`;
+    return line;
+  }).join('\n');
+}
+
+function setStatusLine(html, timeout) {
+  const el = document.getElementById('git-status-line');
+  if (el) {
+    el.innerHTML = html;
+    if (timeout) setTimeout(() => { if (el) el.innerHTML = ''; }, timeout);
+  }
 }
 
 async function runCommit() {
   const p = state.activeProject;
   if (!p) return;
   const msg = document.getElementById('commit-msg').value || 'update';
-  const status = document.getElementById('git-status-line');
-  status.innerHTML = '<span class="spinner"></span> Committing...';
+  setStatusLine('<span class="spinner"></span> Committing...');
   const data = await api('POST', `/api/projects/${p.id}/commit`, { message: msg });
   if (data.success) {
-    status.innerHTML = `<span class="badge badge-green">Committed</span> ${data.stdout || ''}`;
+    setStatusLine(`<span class="badge badge-green">Committed</span> ${escapeHtml(data.stdout || '')}`, 4000);
     document.getElementById('commit-msg').value = '';
     loadGitStatus();
     loadProjects();
   } else {
-    status.innerHTML = `<span class="badge badge-red">Error</span> ${data.stderr || data.error || 'Nothing to commit'}`;
+    setStatusLine(`<span class="badge badge-red">Error</span> ${escapeHtml(data.stderr || data.error || 'Nothing to commit')}`, 4000);
   }
-  setTimeout(() => status.innerHTML = '', 4000);
 }
 
 async function runMerge() {
@@ -819,17 +1128,56 @@ async function runMerge() {
   if (!p) return;
   const branch = document.getElementById('merge-branch').value.trim();
   if (!branch) return;
-  const status = document.getElementById('git-status-line');
-  status.innerHTML = `<span class="spinner"></span> Merging ${branch}...`;
+  setStatusLine(`<span class="spinner"></span> Merging ${escapeHtml(branch)}...`);
   const data = await api('POST', `/api/projects/${p.id}/merge`, { branch });
   if (data.success) {
-    status.innerHTML = `<span class="badge badge-green">Merged</span> ${data.stdout || ''}`;
+    setStatusLine(`<span class="badge badge-green">Merged</span> ${escapeHtml(data.stdout || '')}`, 4000);
     loadGitStatus();
     loadProjects();
   } else {
-    status.innerHTML = `<span class="badge badge-red">Error</span> ${data.stderr || data.error || 'Merge failed'}`;
+    setStatusLine(`<span class="badge badge-red">Error</span> ${escapeHtml(data.stderr || data.error || 'Merge failed')}`, 4000);
   }
-  setTimeout(() => status.innerHTML = '', 4000);
+}
+
+async function runAiCommitMessage() {
+  const p = state.activeProject;
+  if (!p) return;
+  setStatusLine('<span class="spinner"></span> Generating commit message...');
+  const data = await api('POST', `/api/projects/${p.id}/ai-commit-message`);
+  if (data.message) {
+    document.getElementById('commit-msg').value = data.message;
+    setStatusLine('<span class="badge badge-blue">AI</span> Message generated', 4000);
+  } else {
+    setStatusLine(`<span class="badge badge-red">Error</span> ${escapeHtml(data.error || 'Failed')}`, 4000);
+  }
+}
+
+async function runPush() {
+  const p = state.activeProject;
+  if (!p) return;
+  setStatusLine('<span class="spinner"></span> Pushing...');
+  const data = await api('POST', `/api/projects/${p.id}/push`);
+  if (data.success) {
+    setStatusLine(`<span class="badge badge-green">Pushed</span> ${escapeHtml(data.stdout || '')}`, 4000);
+    loadGitStatus();
+    loadProjects();
+  } else {
+    setStatusLine(`<span class="badge badge-red">Error</span> ${escapeHtml(data.stderr || data.error || 'Push failed')}`, 4000);
+  }
+}
+
+async function runPull() {
+  const p = state.activeProject;
+  if (!p) return;
+  setStatusLine('<span class="spinner"></span> Pulling...');
+  const data = await api('POST', `/api/projects/${p.id}/pull`);
+  if (data.success) {
+    setStatusLine(`<span class="badge badge-green">Pulled</span> ${escapeHtml(data.stdout || '')}`, 4000);
+    loadGitStatus();
+    loadProjects();
+  } else {
+    setStatusLine(`<span class="badge badge-red">Error</span> ${escapeHtml(data.stderr || data.error || 'Pull failed')}`, 4000);
+  }
 }
 
 // ── Sessions tab ──
@@ -856,6 +1204,8 @@ async function loadSessionsContent() {
     if (s.action === 'combine') detail = `${(s.lines || 0).toLocaleString()} lines, ${s.size ? (s.size / 1024).toFixed(1) + ' KB' : '—'}`;
     else if (s.action === 'commit') detail = s.message || '';
     else if (s.action === 'merge') detail = s.branch || '';
+    else if (s.action === 'push') detail = s.success ? 'pushed' : 'failed';
+    else if (s.action === 'pull') detail = s.success ? 'pulled' : 'failed';
     else if (s.action === 'patch_save') detail = `${(s.size || 0).toLocaleString()} chars`;
     return `<div class="session-item"><span class="time">${new Date(s.timestamp).toLocaleString()}</span><span class="action ${cls}">${s.action.replace('_', ' ')}</span><span class="detail">${detail}</span></div>`;
   }).join('') + '</div>';
@@ -981,12 +1331,110 @@ function selectFolder() {
   document.getElementById('new-path').focus();
 }
 
+// ── Project build/restart ──
+let deployProjectId = null;
+let deployRunning = false;
+
+function openDeployModal(id) {
+  const p = state.projects.find(project => project.id === id);
+  if (!p) return;
+  deployProjectId = id;
+  document.getElementById('deploy-project-name').textContent = `· ${p.name}`;
+  document.getElementById('deploy-build-command').value = p.buildCommand || '';
+  document.getElementById('deploy-restart-command').value = p.restartCommand || '';
+  document.getElementById('deploy-status').textContent = '';
+  const output = document.getElementById('deploy-output');
+  output.textContent = '';
+  output.style.display = 'none';
+  document.getElementById('deploy-modal').classList.add('open');
+}
+
+function closeDeployModal() {
+  if (deployRunning) return;
+  document.getElementById('deploy-modal').classList.remove('open');
+  deployProjectId = null;
+}
+
+function setDeployControls(disabled) {
+  deployRunning = disabled;
+  document.getElementById('deploy-build-command').disabled = disabled;
+  document.getElementById('deploy-restart-command').disabled = disabled;
+  document.getElementById('deploy-save-btn').disabled = disabled;
+  document.getElementById('deploy-run-btn').disabled = disabled;
+  document.getElementById('deploy-close-btn').disabled = disabled;
+}
+
+async function saveDeployConfig(showStatus = true) {
+  if (!deployProjectId) return false;
+  const buildCommand = document.getElementById('deploy-build-command').value.trim();
+  const restartCommand = document.getElementById('deploy-restart-command').value.trim();
+  const data = await api('POST', `/api/projects/${deployProjectId}/deploy-config`, { buildCommand, restartCommand });
+  const status = document.getElementById('deploy-status');
+  if (data.error) {
+    status.innerHTML = `<span class="badge badge-red">Error</span> ${escapeHtml(data.error)}`;
+    return false;
+  }
+  const p = state.projects.find(project => project.id === deployProjectId);
+  if (p) { p.buildCommand = buildCommand; p.restartCommand = restartCommand; }
+  renderCards();
+  if (showStatus) status.innerHTML = '<span class="badge badge-green">Saved</span> Project commands updated.';
+  return true;
+}
+
+function formatCommandResult(label, result) {
+  if (!result) return '';
+  const lines = [`$ ${label}`, `exit code: ${result.code}`];
+  if (result.stdout) lines.push('', result.stdout.trimEnd());
+  if (result.stderr) lines.push('', result.stderr.trimEnd());
+  if (result.error && !result.stderr) lines.push('', result.error);
+  return lines.join('\n');
+}
+
+async function runRebuildRestart() {
+  if (!deployProjectId || deployRunning) return;
+  const buildCommand = document.getElementById('deploy-build-command').value.trim();
+  const restartCommand = document.getElementById('deploy-restart-command').value.trim();
+  const status = document.getElementById('deploy-status');
+  const output = document.getElementById('deploy-output');
+  if (!buildCommand || !restartCommand) {
+    status.innerHTML = '<span class="badge badge-red">Required</span> Enter both commands.';
+    return;
+  }
+  if (!await saveDeployConfig(false)) return;
+
+  setDeployControls(true);
+  status.innerHTML = '<span class="spinner"></span> Building; restart will follow only if it succeeds...';
+  output.style.display = 'block';
+  output.textContent = `$ ${buildCommand}\n\nRunning...`;
+  try {
+    const data = await api('POST', `/api/projects/${deployProjectId}/rebuild-restart`);
+    const sections = [formatCommandResult(buildCommand, data.build)];
+    if (data.restart) sections.push(formatCommandResult(restartCommand, data.restart));
+    if (data.error) sections.push(data.error);
+    output.textContent = sections.filter(Boolean).join('\n\n' + '─'.repeat(60) + '\n\n');
+    if (data.success) {
+      status.innerHTML = `<span class="badge badge-green">Online</span> Build completed and restart succeeded in ${Math.max(1, Math.round((data.durationMs || 0) / 1000))}s.`;
+    } else {
+      const failedStage = data.stage === 'restart' ? 'Restart' : 'Build';
+      status.innerHTML = `<span class="badge badge-red">${failedStage} failed</span> Review the output below.`;
+    }
+    refreshActivityLog();
+  } catch (error) {
+    output.textContent = error.message;
+    status.innerHTML = '<span class="badge badge-red">Request failed</span>';
+  } finally {
+    setDeployControls(false);
+  }
+}
+
 // ── Add Project Modal ──
 function openAddModal() {
   document.getElementById('add-modal').classList.add('open');
   document.getElementById('new-name').value = '';
   document.getElementById('new-path').value = '';
   document.getElementById('new-script').value = '';
+  document.getElementById('new-build-command').value = '';
+  document.getElementById('new-restart-command').value = '';
   document.getElementById('detect-result').style.display = 'none';
   document.getElementById('combine-script-group').style.display = 'none';
 }
@@ -1024,8 +1472,10 @@ async function createProject() {
   const name = document.getElementById('new-name').value.trim();
   const path = document.getElementById('new-path').value.trim();
   const script = document.getElementById('new-script').value.trim() || undefined;
+  const buildCommand = document.getElementById('new-build-command').value.trim();
+  const restartCommand = document.getElementById('new-restart-command').value.trim();
   if (!name || !path) return;
-  const data = await api('POST', '/api/projects', { name, path, combineScript: script });
+  const data = await api('POST', '/api/projects', { name, path, combineScript: script, buildCommand, restartCommand });
   if (data.error) { alert(data.error); return; }
   closeAddModal();
   await loadProjects();
@@ -1040,6 +1490,68 @@ async function deleteProject(id, name) {
 }
 
 loadProjects();
+loadActivityLog();
+
+// ── Activity Log ──
+let activityTimer = null;
+
+async function loadActivityLog() {
+  try {
+    const data = await api('GET', '/api/activity');
+    const list = document.getElementById('activity-log-list');
+    const count = document.getElementById('activity-count');
+    const status = document.getElementById('activity-status');
+
+    if (!data.entries || !data.entries.length) {
+      list.innerHTML = '<div style="color:var(--text2);font-size:12px;padding:8px 0">No actions yet.</div>';
+      count.textContent = '';
+      status.textContent = '';
+    } else {
+      count.textContent = `(${data.entries.length})`;
+      const now = new Date();
+      list.innerHTML = data.entries.map(e => {
+        const ts = new Date(e.timestamp);
+        const diffMs = now - ts;
+        const mins = Math.floor(diffMs / 60000);
+        const hrs = Math.floor(diffMs / 3600000);
+        const days = Math.floor(diffMs / 86400000);
+        let relTime;
+        if (mins < 1) relTime = 'just now';
+        else if (mins < 60) relTime = `${mins}m ago`;
+        else if (hrs < 24) relTime = `${hrs}h ago`;
+        else relTime = `${days}d ago`;
+
+        const cls = e.action || 'unknown';
+        let detail = '';
+        if (e.action === 'combine') detail = `${(e.lines || 0).toLocaleString()} lines`;
+        else if (e.action === 'commit') detail = e.message || '';
+        else if (e.action === 'merge') detail = e.branch || '';
+        else if (e.action === 'patch_save') detail = `${(e.size || 0).toLocaleString()} chars`;
+        else if (e.action === 'push' || e.action === 'pull' || e.action === 'fetch') detail = e.success ? 'ok' : 'failed';
+        else if (e.action === 'apply_patch' || e.action === 'apply_opencode') detail = e.success ? 'ok' : 'failed';
+
+        const dot = e.success === false ? 'fail' : 'ok';
+
+        return `<div class="activity-item">
+          <span class="status-dot ${dot}"></span>
+          <span class="proj-name">${escapeHtml(e.projectName)}</span>
+          <span class="action-tag ${cls}">${e.action.replace(/_/g, ' ')}</span>
+          ${detail ? `<span class="detail-text">${escapeHtml(detail)}</span>` : ''}
+          <span class="time-text">${relTime}</span>
+        </div>`;
+      }).join('');
+      status.textContent = `· updated ${new Date().toLocaleTimeString()}`;
+    }
+  } catch(e) {
+    // silent fail
+  }
+  activityTimer = setTimeout(loadActivityLog, 15000);
+}
+
+function refreshActivityLog() {
+  clearTimeout(activityTimer);
+  loadActivityLog();
+}
 </script>
 </body>
 </html>

@@ -303,7 +303,7 @@ async function run() {
 }
 
 run();
-// ===== /home/luanngo/opendoc/package.json (2026-07-01 14:20:55) =====
+// ===== /home/luanngo/opendoc/package.json (2026-07-15 01:05:44) =====
 {
   "name": "openword",
   "version": "1.0.0",
@@ -331,7 +331,9 @@ run();
   "dependencies": {
     "express": "^4.19.2",
     "multer": "^2.0.2",
-    "puppeteer": "^23.10.0"
+    "puppeteer": "^23.10.0",
+    "docx": "7.8.2",
+    "mammoth": "1.6.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
@@ -363,7 +365,7 @@ export default defineConfig({
   },
 });
 
-// ===== /home/luanngo/opendoc/public/collaboration-manager.js (2026-07-13 01:00:34) =====
+// ===== /home/luanngo/opendoc/public/collaboration-manager.js (2026-07-18 03:13:17) =====
 function createSessionId() {
     if (globalThis.crypto?.randomUUID) return `session_${crypto.randomUUID()}`;
     return `session_${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
@@ -387,6 +389,7 @@ export class CollaborationManager {
         this.eventSource = null;
         this.heartbeatTimer = null;
         this.selectionTimer = null;
+        this.paintFrame = null;
         this.currentDocumentId = null;
         this.lastRemoteRevision = null;
         this.transactionQueue = Promise.resolve();
@@ -415,12 +418,12 @@ export class CollaborationManager {
             if (remote || this.applyingRemote || transaction?.meta?.remote) return;
             this.enqueueLocalTransaction(transaction);
         });
-        document.addEventListener('selectionchange', () => {
+        this.state.subscribeTo('SELECTION_CHANGED', () => {
             clearTimeout(this.selectionTimer);
             this.selectionTimer = setTimeout(() => this.sendPresence(), 180);
         });
-        window.addEventListener('resize', () => this.paintRemoteSelections());
-        window.addEventListener('scroll', () => this.paintRemoteSelections(), true);
+        window.addEventListener('resize', () => this.scheduleRemoteSelectionPaint());
+        window.addEventListener('scroll', () => this.scheduleRemoteSelectionPaint(), true);
         window.addEventListener('pagehide', () => this.disconnect({ beacon: true }));
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') this.sendPresence();
@@ -514,7 +517,7 @@ export class CollaborationManager {
     handlePresence(entries) {
         this.presence = (entries || []).filter(entry => entry.sessionId !== this.sessionId);
         this.renderPresence();
-        this.paintRemoteSelections();
+        this.scheduleRemoteSelectionPaint();
         this.state.signal('COLLABORATION_PRESENCE_CHANGED', { presence: this.presence });
     }
 
@@ -531,6 +534,17 @@ export class CollaborationManager {
             this.state.currentUserName = this.userName;
             this.sendPresence();
         });
+    }
+
+    scheduleRemoteSelectionPaint() {
+        if (this.paintFrame) return;
+        const paint = () => {
+            this.paintFrame = null;
+            this.paintRemoteSelections();
+        };
+        this.paintFrame = typeof requestAnimationFrame === 'function'
+            ? requestAnimationFrame(paint)
+            : setTimeout(paint, 0);
     }
 
     paintRemoteSelections() {
@@ -656,6 +670,10 @@ export class CollaborationManager {
     async disconnect({ beacon = false } = {}) {
         clearInterval(this.heartbeatTimer);
         this.heartbeatTimer = null;
+        clearTimeout(this.selectionTimer);
+        this.selectionTimer = null;
+        if (this.paintFrame && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(this.paintFrame);
+        this.paintFrame = null;
         this.eventSource?.close();
         this.eventSource = null;
         const documentId = this.currentDocumentId;
@@ -828,7 +846,7 @@ export class ContextMenu {
     }
 }
 
-// ===== /home/luanngo/opendoc/public/controller.js (2026-07-13 01:54:11) =====
+// ===== /home/luanngo/opendoc/public/controller.js (2026-07-18 03:13:59) =====
 import { Formatter } from './formatter.js';
 import { ToolbarManager } from './toolbar-manager.js';
 import { KeyboardManager } from './keyboard-manager.js';
@@ -874,13 +892,18 @@ export class EditorController {
         this.splitViewActive = false;
         this.splitRenderers = null;
 
-        if (typeof window.DEBUG_PAGINATION === 'undefined') window.DEBUG_PAGINATION = true;
-        if (typeof window.DEBUG_PASTE === 'undefined') window.DEBUG_PASTE = true;
-        if (typeof window.DEBUG_ENTER === 'undefined') window.DEBUG_ENTER = true;
+        if (typeof window.DEBUG_PAGINATION === 'undefined') window.DEBUG_PAGINATION = false;
+        if (typeof window.DEBUG_PASTE === 'undefined') window.DEBUG_PASTE = false;
+        if (typeof window.DEBUG_ENTER === 'undefined') window.DEBUG_ENTER = false;
 
         this._pasteSeq = 0;
         this.pendingInsertIndex = null;
         this.docMetaUpdateTimer = null;
+        this._selectionFrame = null;
+        this._selectionSignature = null;
+        this._blockStatsCache = new Map();
+        this._documentStats = { words: 0, chars: 0 };
+        this._statsScratchElement = null;
 
         this.toolbar = new ToolbarManager(this);
         this.keyboard = new KeyboardManager(this);
@@ -932,11 +955,11 @@ export class EditorController {
                     });
                 }
                 this.savedSelection = null;
-                this.updateDocumentMeta(doc, { ...op });
                 document.getElementById('doc-title-display').innerText = doc.title;
                 return;
             }
 
+            this._pendingOp = op;
             this._flushRender();
         });
 
@@ -986,20 +1009,7 @@ export class EditorController {
         this.toolbar.setupContextualToolbar();
         this.initPersistence();
 
-        document.addEventListener('selectionchange', () => {
-            this.toolbar.updateToolbarState();
-            this.toolbar.updateContextualToolbar();
-            const modelSelection = this.engine.captureSelection();
-            const ctx = this.getActiveBlockContextFromSelection();
-            if (ctx) {
-                this.activeBlockIndex = ctx.index;
-                this.activeBlockId = ctx.blockId;
-                this.lastFocusedBlockEl = ctx.el;
-            } else if (modelSelection?.anchor?.blockId) {
-                this.activeBlockId = modelSelection.anchor.blockId;
-                this.activeBlockIndex = this.state.getBlockIndexById(this.activeBlockId);
-            }
-        });
+        this.setupSelectionCoordinator();
 
         document.getElementById('doc-title-display').onblur = (e) => {
             this.state.renameDoc(e.target.innerText);
@@ -1025,11 +1035,18 @@ export class EditorController {
             cancelAnimationFrame(this._renderBatchTimer);
             this._renderBatchTimer = null;
         }
+        const pendingOp = this._pendingOp;
         this.saveSelectionSnapshot();
-        const didFullRender = this.renderer.render(this.state.doc, this.state.hfMode, this._pendingOp || null);
+        // Model-backed input prevents the browser's native DOM edit, then applies a
+        // transaction that replaces the rendered block. Restoring the selection
+        // captured before that transaction leaves the caret one keystroke behind
+        // until EditorEngine's deferred restore runs. Use the transaction's
+        // authoritative post-edit selection during the synchronous render instead.
+        if (pendingOp?.selectionAfter) this.savedSelection = pendingOp.selectionAfter;
+        const didFullRender = this.renderer.render(this.state.doc, this.state.hfMode, pendingOp || null);
         if (didFullRender) this.restoreSelectionSnapshot();
         else this.savedSelection = null;
-        this.updateDocumentMeta(this.state.doc, this._pendingOp);
+        this.updateDocumentMeta(this.state.doc, pendingOp);
         document.getElementById('doc-title-display').innerText = this.state.doc.title;
         this._pendingOp = null;
     }
@@ -1140,16 +1157,91 @@ export class EditorController {
             clearTimeout(this.docMetaUpdateTimer);
             this.docMetaUpdateTimer = null;
         }
-        if (op && ((op.type === 'UPDATE_BLOCK' && op.source === 'typing') || op.source === 'enter')) {
+
+        const dirtyBlockIds = this.getMetadataDirtyBlockIds(op);
+        const incrementalTextEdit = dirtyBlockIds.length > 0 && (
+            (op?.type === 'UPDATE_BLOCK' && op?.source === 'typing')
+            || (op?.type === 'TRANSACTION' && ['input', 'delete', 'composition', 'paste'].includes(op?.source))
+        );
+
+        if (incrementalTextEdit) {
+            this.docMetaUpdateTimer = setTimeout(() => {
+                this.docMetaUpdateTimer = null;
+                const outlineChanged = this.metadataEditAffectsOutline(doc.blocks, dirtyBlockIds);
+                if (!this.updateStatsIncrementally(doc.blocks, dirtyBlockIds)) this.updateStats(doc.blocks);
+                if (outlineChanged) this.outline.updateOutline(doc.blocks);
+            }, 120);
+            return;
+        }
+
+        if (op?.source === 'enter') {
             this.docMetaUpdateTimer = setTimeout(() => {
                 this.docMetaUpdateTimer = null;
                 this.updateStats(doc.blocks);
                 this.outline.updateOutline(doc.blocks);
-            }, 250);
+            }, 180);
             return;
         }
+
         this.updateStats(doc.blocks);
         this.outline.updateOutline(doc.blocks);
+    }
+
+    getMetadataDirtyBlockIds(op) {
+        const ids = new Set();
+        if (op?.blockId) ids.add(String(op.blockId));
+        (op?.renderImpact?.dirtyBlockIds || []).forEach(id => ids.add(String(id)));
+        (op?.operations || []).forEach(operation => {
+            const id = operation?.blockId || operation?.block?.id;
+            if (id) ids.add(String(id));
+        });
+        return [...ids];
+    }
+
+    setupSelectionCoordinator() {
+        if (this._selectionCoordinatorSetup) return;
+        this._selectionCoordinatorSetup = true;
+        document.addEventListener('selectionchange', () => this.scheduleSelectionSync());
+        document.addEventListener('focusin', () => this.scheduleSelectionSync());
+    }
+
+    scheduleSelectionSync() {
+        if (this._selectionFrame) return;
+        const run = () => {
+            this._selectionFrame = null;
+            this.flushSelectionSync();
+        };
+        this._selectionFrame = typeof requestAnimationFrame === 'function'
+            ? requestAnimationFrame(run)
+            : setTimeout(run, 0);
+    }
+
+    flushSelectionSync() {
+        const modelSelection = this.engine?.captureSelection?.() || null;
+        const ctx = this.getActiveBlockContextFromSelection();
+        const nextBlockId = ctx?.blockId || modelSelection?.anchor?.blockId || null;
+        const nextBlockIndex = ctx?.index ?? (nextBlockId ? this.state.getBlockIndexById(nextBlockId) : null);
+        const signature = JSON.stringify({ selection: modelSelection, blockId: nextBlockId, blockIndex: nextBlockIndex });
+        if (signature === this._selectionSignature) return;
+        this._selectionSignature = signature;
+
+        if (ctx) {
+            this.activeBlockIndex = ctx.index;
+            this.activeBlockId = ctx.blockId;
+            this.lastFocusedBlockEl = ctx.el;
+        } else if (nextBlockId) {
+            this.activeBlockId = nextBlockId;
+            this.activeBlockIndex = nextBlockIndex;
+        }
+
+        this.toolbar?.updateToolbarState?.(modelSelection);
+        this.toolbar?.updateContextualToolbar?.(ctx);
+        this.toolbar?.updateFloatingToolbar?.();
+        this.state.signal('SELECTION_CHANGED', {
+            selection: modelSelection,
+            activeBlockId: this.activeBlockId,
+            activeBlockIndex: this.activeBlockIndex
+        });
     }
 
     saveSelectionSnapshot() {
@@ -1902,27 +1994,63 @@ export class EditorController {
         try { const val = localStorage.getItem(`opendoc_${key}`); return val ? JSON.parse(val) : null; } catch (e) { return null; }
     }
 
-    updateStats(blocks) {
-        const tmp = document.createElement('div');
-        let text = "";
-        let charCount = 0;
+    computeBlockStats(block) {
+        if (!block) return { words: 0, chars: 0, style: null };
+        let text = '';
+        if (typeof block.content === 'string') {
+            if (block.type === 'text') {
+                this._statsScratchElement ||= document.createElement('div');
+                this._statsScratchElement.innerHTML = block.content;
+                text = this._statsScratchElement.textContent || '';
+            } else text = block.content;
+        }
+        return {
+            words: text.split(/\s+/).filter(Boolean).length,
+            chars: text.length,
+            style: block.style || null
+        };
+    }
 
-        (blocks || []).forEach((b) => {
-            if (b.type === 'text' && typeof b.content === 'string') {
-                tmp.innerHTML = b.content;
-                const t = (tmp.textContent || '');
-                text += t + " ";
-                charCount += t.length;
-            } else if (typeof b.content === 'string') {
-                text += b.content + " ";
-                charCount += b.content.length;
-            }
-        });
-
-        const wordCount = text.split(/\s+/).filter((w) => w.length > 0).length;
-        document.getElementById('word-count').innerText = `${wordCount.toLocaleString()} words`;
+    renderDocumentStats() {
+        const wordEl = document.getElementById('word-count');
+        if (wordEl) wordEl.innerText = `${this._documentStats.words.toLocaleString()} words`;
         const charEl = document.getElementById('char-count');
-        if (charEl) charEl.innerText = `${charCount.toLocaleString()} chars`;
+        if (charEl) charEl.innerText = `${this._documentStats.chars.toLocaleString()} chars`;
+    }
+
+    updateStats(blocks) {
+        this._blockStatsCache.clear();
+        this._documentStats = { words: 0, chars: 0 };
+        (blocks || []).forEach(block => {
+            const stats = this.computeBlockStats(block);
+            if (block?.id) this._blockStatsCache.set(String(block.id), stats);
+            this._documentStats.words += stats.words;
+            this._documentStats.chars += stats.chars;
+        });
+        this.renderDocumentStats();
+    }
+
+    updateStatsIncrementally(blocks, dirtyBlockIds) {
+        if (!this._blockStatsCache.size && (blocks || []).length) return false;
+        for (const blockId of dirtyBlockIds) {
+            const block = this.state.getBlockById(blockId);
+            if (!block) return false;
+            const previous = this._blockStatsCache.get(String(blockId)) || { words: 0, chars: 0 };
+            const next = this.computeBlockStats(block);
+            this._documentStats.words += next.words - previous.words;
+            this._documentStats.chars += next.chars - previous.chars;
+            this._blockStatsCache.set(String(blockId), next);
+        }
+        this.renderDocumentStats();
+        return true;
+    }
+
+    metadataEditAffectsOutline(blocks, dirtyBlockIds) {
+        return dirtyBlockIds.some(blockId => {
+            const block = this.state.getBlockById(blockId);
+            const previous = this._blockStatsCache.get(String(blockId));
+            return /^h[1-6]$/.test(block?.style || '') || /^h[1-6]$/.test(previous?.style || '');
+        });
     }
 
     debugEnter(label, data = {}) {
@@ -5079,7 +5207,7 @@ body[data-markup-mode="simple"] .rev-deletion { background: transparent !importa
 .ai-post-actions { display:flex; flex-wrap:wrap; justify-content:center; gap:7px; margin-top:6px; }
 .ai-post-actions button { background:#fff; border-color:#86efac; color:#166534; }
 
-// ===== /home/luanngo/opendoc/public/css/layout.css (2026-07-03 17:40:53) =====
+// ===== /home/luanngo/opendoc/public/css/layout.css (2026-07-15 01:06:00) =====
 .toolbar {
   background: var(--bg-toolbar);
   border-bottom: 1px solid var(--border-color);
@@ -5655,7 +5783,241 @@ body[data-markup-mode="simple"] .rev-deletion { background: transparent !importa
   background: var(--color-primary-300);
 }
 
-// ===== /home/luanngo/opendoc/public/css/mobile.css (2026-07-03 01:01:03) =====
+
+/* Export workflow and shell polish --------------------------------------- */
+.ribbon-bar {
+  min-height: 44px;
+  height: 44px;
+  padding-inline: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
+  box-shadow: inset 0 -1px 0 rgba(15, 23, 42, 0.03);
+}
+
+.doc-title {
+  max-width: min(36vw, 360px);
+  padding: 5px 8px;
+  border-radius: 7px;
+  letter-spacing: -0.01em;
+}
+
+.doc-title:hover {
+  background: var(--color-gray-50);
+  border-color: var(--color-gray-200);
+}
+
+.save-indicator {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--color-primary-100);
+  border-radius: 999px;
+  background: var(--color-primary-50);
+}
+
+.export-menu-host {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.export-primary-btn {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 11px;
+  border: 1px solid var(--color-primary-600);
+  border-radius: 8px;
+  background: linear-gradient(180deg, var(--color-primary-500), var(--color-primary-600));
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  box-shadow: 0 2px 6px rgba(43, 87, 154, 0.22);
+  cursor: pointer;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast), background var(--transition-fast);
+}
+
+.export-primary-btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, var(--color-primary-600), var(--color-primary-700));
+  box-shadow: 0 4px 10px rgba(43, 87, 154, 0.25);
+  transform: translateY(-1px);
+}
+
+.export-primary-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.export-primary-btn:disabled {
+  opacity: 0.72;
+  cursor: wait;
+}
+
+.export-primary-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.export-primary-btn .export-chevron {
+  width: 13px;
+  height: 13px;
+  opacity: 0.78;
+}
+
+.export-primary-btn.is-busy > svg:first-child {
+  animation: export-pulse 850ms ease-in-out infinite alternate;
+}
+
+@keyframes export-pulse {
+  from { opacity: 0.45; transform: translateY(-1px); }
+  to { opacity: 1; transform: translateY(1px); }
+}
+
+.export-menu-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 5600;
+  width: min(340px, calc(100vw - 20px));
+  padding: 7px;
+  border: 1px solid var(--color-gray-200);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.18), 0 2px 8px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(12px);
+}
+
+.export-menu-popover button {
+  width: 100%;
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.export-menu-popover button:hover,
+.export-menu-popover button:focus-visible {
+  background: var(--color-primary-50);
+  outline: none;
+}
+
+.export-menu-popover button > span:nth-child(2) {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.export-menu-popover strong {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.export-menu-popover small {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.export-menu-popover kbd {
+  padding: 2px 5px;
+  border: 1px solid var(--color-gray-200);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: #fff;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.export-format-icon {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+}
+
+.export-format-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.export-format-word {
+  background: #e8f0ff;
+  color: #2457a6;
+}
+
+.export-format-pdf {
+  background: #fff0f0;
+  color: #b42318;
+}
+
+.ribbon-tab-row {
+  padding-inline: 14px;
+  background: #f8fafc;
+}
+
+.ribbon-tab {
+  position: relative;
+  padding-inline: 16px;
+  border-radius: 0;
+}
+
+.ribbon-tab.active {
+  border-color: transparent;
+  background: transparent;
+}
+
+.ribbon-tab.active::after {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 0;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--color-primary-500);
+}
+
+.ribbon-body {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+
+#workspace-wrapper {
+  background:
+    radial-gradient(circle at 50% 0, rgba(255,255,255,0.72), transparent 36%),
+    var(--bg-page-view);
+}
+
+.page {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 3px;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.12), 0 2px 5px rgba(15, 23, 42, 0.08);
+}
+
+button:focus-visible,
+select:focus-visible,
+[contenteditable="true"]:focus-visible {
+  outline: 2px solid var(--color-primary-400);
+  outline-offset: 2px;
+}
+
+// ===== /home/luanngo/opendoc/public/css/mobile.css (2026-07-15 01:06:03) =====
 /* Mobile styles – loaded after all other CSS */
 
 /* Utility: show/hide on mobile */
@@ -6233,6 +6595,38 @@ body[data-markup-mode="simple"] .rev-deletion { background: transparent !importa
 .mobile-toolbar-drawer {
   -webkit-user-select: none;
   user-select: none;
+}
+
+
+@media (max-width: 768px) {
+  .export-menu-host {
+    margin-left: auto;
+  }
+
+  .export-primary-btn {
+    width: 38px;
+    height: 36px;
+    min-height: 36px;
+    padding: 0;
+    border-radius: 9px;
+  }
+
+  .export-primary-label,
+  .export-primary-btn .export-chevron {
+    display: none;
+  }
+
+  .export-menu-popover {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 50px);
+    left: 8px;
+    right: 8px;
+    width: auto;
+  }
+
+  .doc-title {
+    max-width: min(34vw, 130px);
+  }
 }
 
 // ===== /home/luanngo/opendoc/public/css/opendoc-paste-pagination-fixes.css (2026-07-13 01:00:57) =====
@@ -11309,7 +11703,7 @@ export class ModelInputManager {
     }
 }
 
-// ===== /home/luanngo/opendoc/public/editor/navigation/document-structure-manager.js (2026-07-09 17:28:11) =====
+// ===== /home/luanngo/opendoc/public/editor/navigation/document-structure-manager.js (2026-07-18 03:14:04) =====
 import { Formatter } from '../../formatter.js';
 import { createStableId } from '../id.js';
 
@@ -11318,7 +11712,13 @@ function esc(value) { return Formatter.escapeHtml(String(value ?? '')); }
 
 export class DocumentStructureManager {
   constructor(controller) { this.ctrl = controller; this.state = controller.state; this.panel = null; }
-  setup() { this.ensureUi(); this.bindToolbar(); this.state.subscribe(() => this.render()); }
+  setup() {
+    this.ensureUi();
+    this.bindToolbar();
+    this.state.subscribe(() => {
+      if (!this.panel?.classList.contains('hidden')) this.render();
+    });
+  }
 
   bindToolbar() {
     const viewPanel = document.querySelector('[data-panel="view"] .ribbon-group-buttons') || document.querySelector('[data-panel="view"]');
@@ -11384,7 +11784,7 @@ export class DocumentStructureManager {
   gotoPage(num) { document.querySelector(`#workspace .page[data-page-num="${num}"]`)?.scrollIntoView({ behavior:'smooth', block:'start' }); }
 
   headingRange(blockId) {
-    const blocks = this.state.doc.blocks || []; const start = blocks.findIndex(b => b.id === blockId); if (start < 0) return null;
+    const blocks = this.state.doc.blocks || []; const start = this.state.getBlockIndexById(blockId); if (start < 0) return null;
     const level = Number(String(blocks[start].style || 'h1').slice(1)) || 1; let end = blocks.length;
     for (let i = start + 1; i < blocks.length; i += 1) if (blocks[i].type === 'text' && /^h[1-6]$/.test(blocks[i].style || '') && (Number(String(blocks[i].style).slice(1)) || 1) <= level) { end = i; break; }
     return { start, end };
@@ -12623,7 +13023,7 @@ export class PublishingManager {
   }
 }
 
-// ===== /home/luanngo/opendoc/public/editor/review/review-collaboration-v2-manager.js (2026-07-09 17:50:09) =====
+// ===== /home/luanngo/opendoc/public/editor/review/review-collaboration-v2-manager.js (2026-07-18 03:14:08) =====
 import { Formatter } from '../../formatter.js';
 
 function esc(value) { return Formatter.escapeHtml(String(value ?? '')); }
@@ -12635,13 +13035,25 @@ export class ReviewCollaborationV2Manager {
     this.panel = null;
     this.balloonLayer = null;
     this.currentRevisionIndex = -1;
+    this._balloonFrame = null;
   }
 
   setup() {
     this.ensureUi();
     this.bindToolbar();
-    this.state.subscribe(() => requestAnimationFrame(() => this.renderBalloons()));
-    this.state.subscribeTo('DOCUMENT_LOADED', () => this.renderPanel());
+    this.state.subscribe(() => this.scheduleBalloonRender());
+    this.state.subscribeTo('DOCUMENT_LOADED', () => {
+      if (!this.panel?.classList.contains('hidden')) this.renderPanel();
+      this.scheduleBalloonRender();
+    });
+  }
+
+  scheduleBalloonRender() {
+    if (this._balloonFrame) return;
+    this._balloonFrame = requestAnimationFrame(() => {
+      this._balloonFrame = null;
+      this.renderBalloons();
+    });
   }
 
   bindToolbar() {
@@ -12859,7 +13271,7 @@ export class ReviewCollaborationV2Manager {
   }
 }
 
-// ===== /home/luanngo/opendoc/public/editor/review/review-manager.js (2026-07-09 17:48:09) =====
+// ===== /home/luanngo/opendoc/public/editor/review/review-manager.js (2026-07-18 03:14:11) =====
 import { createStableId } from '../id.js';
 import { cloneDocumentValue } from '../schema.js';
 
@@ -12872,7 +13284,13 @@ export const DEFAULT_STYLES = {
 };
 
 export class ReviewManager {
-    constructor(controller) { this.ctrl = controller; this.state = controller.state; this.engine = controller.engine; this.commentHighlightName = 'openword-comments'; }
+    constructor(controller) {
+        this.ctrl = controller;
+        this.state = controller.state;
+        this.engine = controller.engine;
+        this.commentHighlightName = 'openword-comments';
+        this._refreshFrame = null;
+    }
 
     setup() {
         this.ensureResources();
@@ -12892,8 +13310,18 @@ export class ReviewManager {
         }
         this.state.subscribeTo('TRANSACTION_APPLIED', ({ transaction }) => this.mapCommentAnchors(transaction));
         this.state.subscribeTo('DOCUMENT_LOADED', () => { this.ensureResources(); this.populateStyleSelect(); this.renderReviewPanel(); });
-        this.state.subscribe(() => requestAnimationFrame(() => { this.paintComments(); this.renderReviewPanel(); }));
+        this.state.subscribe(() => this.scheduleRefresh());
         this.populateStyleSelect();
+    }
+
+    scheduleRefresh() {
+        if (this._refreshFrame) return;
+        this._refreshFrame = requestAnimationFrame(() => {
+            this._refreshFrame = null;
+            this.paintComments();
+            const panel = document.getElementById('review-panel');
+            if (panel && !panel.classList.contains('hidden')) this.renderReviewPanel();
+        });
     }
 
     ensureResources() {
@@ -13952,7 +14380,7 @@ export function getStyleDisplayName(doc, styleId) {
   return resolveNamedStyle(doc, styleId).name || styleId || 'Normal';
 }
 
-// ===== /home/luanngo/opendoc/public/editor/table/table-manager.js (2026-07-09 17:31:00) =====
+// ===== /home/luanngo/opendoc/public/editor/table/table-manager.js (2026-07-18 03:14:14) =====
 import { createTableSelection } from '../selection-model.js';
 
 function esc(value) {
@@ -13978,6 +14406,8 @@ export class TableManager {
         this.dragging = false;
         this.ribbon = null;
         this.designPanel = null;
+        this._refreshFrame = null;
+        this._needsPaint = false;
     }
 
     setup() {
@@ -13990,8 +14420,19 @@ export class TableManager {
         this.bind('ctx-btn-merge-cells', () => this.merge());
         this.bind('ctx-btn-split-cell', () => this.split());
         this.bind('ctx-btn-header-row', () => this.header());
-        this.state.subscribe(() => requestAnimationFrame(() => { this.paint(); this.updateRibbon(); }));
-        document.addEventListener('selectionchange', () => this.updateRibbon());
+        this.state.subscribe(() => this.scheduleRefresh(true));
+        this.state.subscribeTo('SELECTION_CHANGED', () => this.scheduleRefresh(false));
+    }
+
+    scheduleRefresh(needsPaint = false) {
+        this._needsPaint ||= needsPaint;
+        if (this._refreshFrame) return;
+        this._refreshFrame = requestAnimationFrame(() => {
+            this._refreshFrame = null;
+            if (this._needsPaint) this.paint();
+            this._needsPaint = false;
+            this.updateRibbon();
+        });
     }
 
     bind(id, fn) { document.getElementById(id)?.addEventListener('click', fn); }
@@ -14302,7 +14743,7 @@ export function isTransaction(value) {
     return value instanceof Transaction || value?.type === 'TRANSACTION' || Array.isArray(value?.operations);
 }
 
-// ===== /home/luanngo/opendoc/public/export-import.js (2026-07-09 17:48:11) =====
+// ===== /home/luanngo/opendoc/public/export-import.js (2026-07-15 01:07:18) =====
 import { Formatter } from './formatter.js';
 import { getBlockRuns } from './editor/inline/block-inline.js';
 
@@ -14311,6 +14752,21 @@ const DOCX_PAGE_SIZES = {
     letter: { width: 12240, height: 15840 },
     a4: { width: 11906, height: 16838 }
 };
+
+export function sanitizeDownloadName(value, extension = '') {
+    const normalizedExtension = extension && !String(extension).startsWith('.') ? `.${extension}` : String(extension || '');
+    let base = String(value || 'Untitled')
+        .normalize('NFKC')
+        .replace(/[<>:"/\\|?*\u0000-\u001F]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/[. ]+$/g, '')
+        .slice(0, 120);
+    if (!base) base = 'Untitled';
+    if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(base)) base = `_${base}`;
+    if (normalizedExtension && !base.toLowerCase().endsWith(normalizedExtension.toLowerCase())) base += normalizedExtension;
+    return base;
+}
 
 function cleanColor(value, fallback = undefined) {
     if (!value) return fallback;
@@ -14327,26 +14783,65 @@ export class ExportImport {
     constructor(ctrl) {
         this.ctrl = ctrl;
         this.state = ctrl.state;
+        this.exportInFlight = false;
+    }
+
+    getDocxRuntime() {
+        const runtime = globalThis.docx;
+        if (!runtime?.Document || !runtime?.Packer) {
+            throw new Error('Word export components are unavailable. Refresh after running npm install.');
+        }
+        return runtime;
+    }
+
+    notifyExportState(format, busy, message = '') {
+        document.dispatchEvent(new CustomEvent('opendoc:export-state', {
+            detail: { format, busy, message }
+        }));
+    }
+
+    downloadBlob(blob, fileName) {
+        const url = window.URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = fileName;
+        anchor.style.display = 'none';
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => window.URL.revokeObjectURL(url), 30_000);
     }
 
     printDocument() { return this.exportPDF(); }
 
     async exportPDF() {
+        if (this.exportInFlight) return false;
+        this.exportInFlight = true;
+        this.notifyExportState('pdf', true, 'Generating PDF…');
         this.ctrl.toolbar?.showShellToast?.('Generating PDF…');
-        const res = await fetch(`/api/docs/${encodeURIComponent(this.state.doc.id)}/export/pdf`, { method: 'POST' });
-        if (!res.ok) {
-            this.ctrl.toolbar?.showShellToast?.('PDF export failed');
+        try {
+            this.ctrl.syncCurrentTextBlockFromDom?.();
+            await this.state.flushSave?.();
+            const res = await fetch(`/api/docs/${encodeURIComponent(this.state.doc.id)}/export/pdf`, { method: 'POST' });
+            if (!res.ok) throw new Error(`PDF export failed (${res.status})`);
+            const blob = await res.blob();
+            const url = window.URL.createObjectURL(blob);
+            window.open(url, '_blank', 'noopener');
+            setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+            this.ctrl.toolbar?.showShellToast?.('PDF ready');
+            return true;
+        } catch (error) {
+            console.error('PDF export failed', error);
+            this.ctrl.toolbar?.showShellToast?.(error.message || 'PDF export failed');
             return false;
+        } finally {
+            this.exportInFlight = false;
+            this.notifyExportState('pdf', false);
         }
-        const blob = await res.blob();
-        const url = window.URL.createObjectURL(blob);
-        window.open(url, '_blank', 'noopener');
-        setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
-        return true;
     }
 
     htmlToDocxRuns(node, inherited = {}) {
-        const { TextRun, ExternalHyperlink } = docx;
+        const { TextRun, ExternalHyperlink } = this.getDocxRuntime();
         const output = [];
         const walk = (current, options = inherited) => {
             if (current.nodeType === Node.TEXT_NODE) {
@@ -14387,7 +14882,7 @@ export class ExportImport {
     }
 
     blockRunsToDocx(block) {
-        const { TextRun, ExternalHyperlink } = docx;
+        const { TextRun, ExternalHyperlink } = this.getDocxRuntime();
         if (block.contentFormat !== 'runs' || !Array.isArray(block.children)) {
             const container = document.createElement('div');
             container.innerHTML = block.content || '';
@@ -14417,7 +14912,7 @@ export class ExportImport {
     }
 
     paragraphOptions(block) {
-        const { HeadingLevel, AlignmentType } = docx;
+        const { HeadingLevel, AlignmentType } = this.getDocxRuntime();
         const heading = {
             h1: HeadingLevel.HEADING_1, h2: HeadingLevel.HEADING_2, h3: HeadingLevel.HEADING_3,
             h4: HeadingLevel.HEADING_4, h5: HeadingLevel.HEADING_5, h6: HeadingLevel.HEADING_6
@@ -14442,7 +14937,7 @@ export class ExportImport {
     }
 
     async imageToParagraph(block) {
-        const { Paragraph, TextRun, ImageRun, AlignmentType } = docx;
+        const { Paragraph, TextRun, ImageRun, AlignmentType } = this.getDocxRuntime();
         try {
             const response = await fetch(block.content);
             if (!response.ok) throw new Error(`Image response ${response.status}`);
@@ -14463,7 +14958,7 @@ export class ExportImport {
     }
 
     async objectToDocxElements(block) {
-        const { Paragraph, TextRun, ImageRun, AlignmentType, Table, TableRow, TableCell, WidthType, ShadingType } = docx;
+        const { Paragraph, TextRun, ImageRun, AlignmentType, Table, TableRow, TableCell, WidthType, ShadingType } = this.getDocxRuntime();
         if (block.objectType === 'image') {
             try {
                 const response = await fetch(block.image?.src || '');
@@ -14527,7 +15022,7 @@ export class ExportImport {
     }
 
     tableToDocx(block) {
-        const { Table, TableRow, TableCell, Paragraph, WidthType, ShadingType } = docx;
+        const { Table, TableRow, TableCell, Paragraph, WidthType, ShadingType } = this.getDocxRuntime();
         const rows = [];
         for (let r = 0; r < (block.rows || []).length; r += 1) {
             const cells = [];
@@ -14557,7 +15052,7 @@ export class ExportImport {
     }
 
     async blockToDocxElements(block) {
-        const { Paragraph, TextRun } = docx;
+        const { Paragraph, TextRun } = this.getDocxRuntime();
         if (block.type === 'text') return [new Paragraph({ children: this.blockRunsToDocx(block), ...this.paragraphOptions(block) })];
         if (['ul', 'ol', 'checklist'].includes(block.type)) {
             const numbering = block.numbering || {};
@@ -14592,7 +15087,7 @@ export class ExportImport {
     }
 
     makeHeaderFooter(value, kind = 'header') {
-        const { Header, Footer, Paragraph, TextRun, PageNumber, AlignmentType } = docx;
+        const { Header, Footer, Paragraph, TextRun, PageNumber, AlignmentType } = this.getDocxRuntime();
         if (!value) return undefined;
         const parts = String(value).split('{n}');
         const children = [];
@@ -14605,7 +15100,7 @@ export class ExportImport {
     }
 
     sectionProperties(settings = {}) {
-        const { PageOrientation } = docx;
+        const { PageOrientation } = this.getDocxRuntime();
         const base = DOCX_PAGE_SIZES[settings.pageSize] || DOCX_PAGE_SIZES.letter;
         const landscape = settings.orientation === 'landscape';
         return {
@@ -14657,64 +15152,86 @@ export class ExportImport {
     }
 
     async exportDOCX() {
-        const { Document, Packer } = docx;
-        const source = this.state.doc;
-        const groups = [{
-            id: source.sections?.[0]?.id || 'default',
-            settings: source.sections?.[0]?.settings || source.settings || {},
-            header: source.sections?.[0]?.header || source.header,
-            footer: source.sections?.[0]?.footer || source.footer,
-            children: []
-        }];
-        for (const block of source.blocks || []) {
-            if (block.type === 'toc') continue;
-            if (block.type === 'sectionBreak') {
-                const section = (source.sections || []).find(item => item.id === block.sectionId) || {};
-                groups.push({
-                    id: block.sectionId,
-                    settings: section.settings || block.settings || source.settings || {},
-                    header: section.header || source.header,
-                    footer: section.footer || source.footer,
-                    children: []
-                });
-                continue;
+        if (this.exportInFlight) return false;
+        this.exportInFlight = true;
+        this.notifyExportState('docx', true, 'Building Word document…');
+        this.ctrl.toolbar?.showShellToast?.('Building Word document…');
+        try {
+            this.ctrl.syncCurrentTextBlockFromDom?.();
+            await this.state.flushSave?.();
+            const runtime = this.getDocxRuntime();
+            const { Document, Packer, Paragraph } = runtime;
+            const source = this.state.doc;
+            const groups = [{
+                id: source.sections?.[0]?.id || 'default',
+                settings: source.sections?.[0]?.settings || source.settings || {},
+                header: source.sections?.[0]?.header || source.header,
+                footer: source.sections?.[0]?.footer || source.footer,
+                children: []
+            }];
+            for (const block of source.blocks || []) {
+                if (block.type === 'toc') continue;
+                if (block.type === 'sectionBreak') {
+                    const section = (source.sections || []).find(item => item.id === block.sectionId) || {};
+                    groups.push({
+                        id: block.sectionId,
+                        settings: section.settings || block.settings || source.settings || {},
+                        header: section.header || source.header,
+                        footer: section.footer || source.footer,
+                        children: []
+                    });
+                    continue;
+                }
+                groups[groups.length - 1].children.push(...await this.blockToDocxElements(block));
             }
-            groups[groups.length - 1].children.push(...await this.blockToDocxElements(block));
+            groups.forEach(group => { if (!group.children.length) group.children.push(new Paragraph('')); });
+            const generated = new Document({
+                title: source.title || 'Untitled',
+                description: 'Generated by OpenWord',
+                creator: source.currentUserName || 'OpenWord',
+                styles: this.buildDocxStyles(),
+                numbering: { config: [{ reference: 'openword-numbering', levels: Array.from({ length: 9 }, (_, level) => ({ level, format: 'decimal', text: `%${level + 1}.`, alignment: 'left', style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } } })) }] },
+                sections: groups.map(group => ({
+                    properties: this.sectionProperties(group.settings),
+                    headers: this.makeHeaderFooter(group.header?.center, 'header'),
+                    footers: this.makeHeaderFooter(group.footer?.center, 'footer'),
+                    children: group.children
+                }))
+            });
+            const blob = await Packer.toBlob(generated);
+            this.downloadBlob(blob, sanitizeDownloadName(source.title, '.docx'));
+            this.ctrl.toolbar?.showShellToast?.('Word document downloaded');
+            return blob;
+        } catch (error) {
+            console.error('DOCX export failed', error);
+            this.ctrl.toolbar?.showShellToast?.(error.message || 'Word export failed');
+            return false;
+        } finally {
+            this.exportInFlight = false;
+            this.notifyExportState('docx', false);
         }
-        groups.forEach(group => { if (!group.children.length) group.children.push(new docx.Paragraph('')); });
-        const generated = new Document({
-            title: source.title || 'Untitled',
-            description: 'Generated by OpenWord',
-            creator: source.currentUserName || 'OpenWord',
-            styles: this.buildDocxStyles(),
-            numbering: { config: [{ reference: 'openword-numbering', levels: Array.from({ length: 9 }, (_, level) => ({ level, format: 'decimal', text: `%${level + 1}.`, alignment: 'left', style: { paragraph: { indent: { left: 720 * (level + 1), hanging: 360 } } } })) }] },
-            sections: groups.map(group => ({
-                properties: this.sectionProperties(group.settings),
-                headers: this.makeHeaderFooter(group.header?.center, 'header'),
-                footers: this.makeHeaderFooter(group.footer?.center, 'footer'),
-                children: group.children
-            }))
-        });
-        const blob = await Packer.toBlob(generated);
-        const url = window.URL.createObjectURL(blob);
-        const anchor = document.createElement('a');
-        anchor.href = url; anchor.download = `${source.title || 'Untitled'}.docx`; anchor.click();
-        window.URL.revokeObjectURL(url);
-        this.ctrl.toolbar?.showShellToast?.('Word document exported');
-        return blob;
     }
 
     async importDOCX(file) {
-        const arrayBuffer = await file.arrayBuffer();
-        const styleMap = Object.values(this.state.doc.styles || {}).map(style => `p[style-name='${String(style.name || style.id).replace(/'/g, "\\'")}'] => p.${style.id}:fresh`);
-        const result = await mammoth.convertToHtml({ arrayBuffer }, { styleMap, includeDefaultStyleMap: true });
-        const parsed = Formatter.parseHTMLToBlocks(result.value);
-        if (!parsed.length) { this.ctrl.toolbar?.showShellToast?.('Could not parse Word document'); return false; }
-        const insertAt = this.ctrl.getInsertBaseIndex() + 1;
-        parsed.forEach((block, offset) => this.state.insertBlockAt(insertAt + offset, this.state.ensureBlockId(block), 'docx-import'));
-        this.ctrl.focusInsertedBlock(insertAt, 'text');
-        if (result.messages?.length) console.info('DOCX import messages', result.messages);
-        return true;
+        try {
+            const mammothRuntime = globalThis.mammoth;
+            if (!mammothRuntime?.convertToHtml) throw new Error('Word import components are unavailable. Refresh after running npm install.');
+            const arrayBuffer = await file.arrayBuffer();
+            const styleMap = Object.values(this.state.doc.styles || {}).map(style => `p[style-name='${String(style.name || style.id).replace(/'/g, "\\'")}'] => p.${style.id}:fresh`);
+            const result = await mammothRuntime.convertToHtml({ arrayBuffer }, { styleMap, includeDefaultStyleMap: true });
+            const parsed = Formatter.parseHTMLToBlocks(result.value);
+            if (!parsed.length) throw new Error('Could not parse Word document');
+            const insertAt = this.ctrl.getInsertBaseIndex() + 1;
+            parsed.forEach((block, offset) => this.state.insertBlockAt(insertAt + offset, this.state.ensureBlockId(block), 'docx-import'));
+            this.ctrl.focusInsertedBlock(insertAt, 'text');
+            if (result.messages?.length) console.info('DOCX import messages', result.messages);
+            this.ctrl.toolbar?.showShellToast?.('Word document imported');
+            return true;
+        } catch (error) {
+            console.error('DOCX import failed', error);
+            this.ctrl.toolbar?.showShellToast?.(error.message || 'Word import failed');
+            return false;
+        }
     }
 }
 
@@ -15860,7 +16377,7 @@ export class HistoryManager {
     }
 }
 
-// ===== /home/luanngo/opendoc/public/index.html (2026-07-13 01:00:37) =====
+// ===== /home/luanngo/opendoc/public/index.html (2026-07-15 01:06:16) =====
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -15903,6 +16420,25 @@ export class HistoryManager {
             <button id="btn-undo" class="ribbon-bar-btn" title="Undo (Ctrl+Z)"><i data-lucide="undo-2"></i></button>
             <button id="btn-redo" class="ribbon-bar-btn" title="Redo (Ctrl+Y)"><i data-lucide="redo-2"></i></button>
             <span class="ribbon-bar-spacer"></span>
+            <div class="export-menu-host">
+                <button id="btn-export-menu" class="export-primary-btn" type="button" aria-haspopup="menu" aria-expanded="false" title="Download document">
+                    <i data-lucide="download"></i>
+                    <span class="export-primary-label">Download</span>
+                    <i data-lucide="chevron-down" class="export-chevron"></i>
+                </button>
+                <div id="export-menu" class="export-menu-popover hidden" role="menu" aria-label="Download document">
+                    <button type="button" role="menuitem" data-export-action="docx">
+                        <span class="export-format-icon export-format-word"><i data-lucide="file-type-2"></i></span>
+                        <span><strong>Word document</strong><small>Editable Microsoft Word file</small></span>
+                        <kbd>.docx</kbd>
+                    </button>
+                    <button type="button" role="menuitem" data-export-action="pdf">
+                        <span class="export-format-icon export-format-pdf"><i data-lucide="file-text"></i></span>
+                        <span><strong>PDF document</strong><small>Fixed-layout file for sharing</small></span>
+                        <kbd>.pdf</kbd>
+                    </button>
+                </div>
+            </div>
             <button class="ribbon-toggle" id="ribbon-toggle" title="Collapse the Ribbon">
                 <i data-lucide="chevron-up"></i>
             </button>
@@ -16128,8 +16664,8 @@ export class HistoryManager {
                     <div class="ribbon-group-buttons">
                         <button id="btn-print" title="Print (Ctrl+P)"><i data-lucide="printer"></i>Print</button>
                         <button id="btn-exp-pdf" title="Export PDF"><i data-lucide="file-text"></i>PDF</button>
-                        <button id="btn-import-docx" title="Import DOCX"><i data-lucide="file-input"></i>Import</button>
-                        <button id="btn-export-docx" title="Export DOCX"><i data-lucide="file-output"></i>Export</button>
+                        <button id="btn-import-docx" title="Import Word document"><i data-lucide="file-input"></i>Import Word</button>
+                        <button id="btn-export-docx" title="Download as Word document"><i data-lucide="file-output"></i>Word</button>
                         <input type="file" id="inp-docx-import" accept=".docx" style="display:none">
                     </div>
                 </div>
@@ -16531,8 +17067,8 @@ export class HistoryManager {
     </div>
 
     <script src="https://unpkg.com/lucide@0.468.0"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
-    <script src="https://unpkg.com/docx@7.8.2/build/index.js"></script>
+    <script src="/vendor/mammoth.browser.min.js"></script>
+    <script src="/vendor/docx.js"></script>
     <script type="module" src="/main.js"></script>
     <script>
       document.addEventListener('DOMContentLoaded', function () {
@@ -18208,13 +18744,19 @@ export class PerformanceMonitor {
 
 export const openDocPerformance = new PerformanceMonitor();
 
-// ===== /home/luanngo/opendoc/public/renderer.js (2026-07-09 17:48:49) =====
+// ===== /home/luanngo/opendoc/public/renderer.js (2026-07-18 03:17:19) =====
 import { Formatter } from './formatter.js';
 import { ensureBlockIdentity } from './editor/id.js';
 import { isObjectBlock, isFlowObject, objectTextHtml, usesWrapProxy } from './editor/objects/object-model.js';
 import { getPageMetrics as calculatePageMetrics, getActivePageElement, measurePageDom } from './layout/page-metrics.js';
 import { openDocPerformance } from './performance/performance-monitor.js';
 import { resolveNamedStyle, styleToCss, applyCssObject } from './editor/styles/style-system.js';
+
+function selectorEscape(value) {
+    const text = String(value ?? '');
+    if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(text);
+    return text.replace(/(["\\])/g, '\\$1');
+}
 
 /**
  * =========================================================
@@ -18231,11 +18773,15 @@ export class Renderer {
         this.highlightMatches = [];
         this.currentMatchIndex = -1;
 
-        if (typeof window.DEBUG_PAGINATION === 'undefined') window.DEBUG_PAGINATION = true;
+        if (typeof window.DEBUG_PAGINATION === 'undefined') window.DEBUG_PAGINATION = false;
 
         this._renderSeq = 0;
         this._lastPaginateSeq = 0;
         this._deferredRenderTimer = null;
+        this._paginationGeneration = 0;
+        this._paginationFrames = new Set();
+        this._elementsByBlockId = new Map();
+        this._elementsByIndex = new Map();
         this._dragDropSetup = false;
         this._lastRulerMargins = null;
         this._lastPageWidthInches = 8.5;
@@ -18256,6 +18802,76 @@ export class Renderer {
             bottom: Math.round(r.bottom),
             height: Math.round(r.height)
         };
+    }
+
+    cancelPendingPagination() {
+        this._paginationGeneration = Number(this._paginationGeneration || 0) + 1;
+        this._paginationFrames ||= new Set();
+        for (const frameId of this._paginationFrames) cancelAnimationFrame(frameId);
+        this._paginationFrames.clear();
+    }
+
+    beginPaginationGeneration() {
+        this.cancelPendingPagination();
+        return this._paginationGeneration;
+    }
+
+    isPaginationCurrent(generation) {
+        return generation === this._paginationGeneration;
+    }
+
+    schedulePaginationFrame(callback, generation) {
+        const frameId = requestAnimationFrame(() => {
+            this._paginationFrames.delete(frameId);
+            if (!this.isPaginationCurrent(generation)) return;
+            callback();
+        });
+        this._paginationFrames.add(frameId);
+        return frameId;
+    }
+
+    resetDomRegistry() {
+        this._elementsByBlockId.clear();
+        this._elementsByIndex.clear();
+    }
+
+    registerRenderedElement(element) {
+        if (!element?.dataset) return;
+        const blockId = element.dataset.blockId;
+        const index = Number.parseInt(element.dataset.index, 10);
+        if (blockId) {
+            const byId = this._elementsByBlockId.get(blockId) || [];
+            if (!byId.includes(element)) byId.push(element);
+            this._elementsByBlockId.set(blockId, byId);
+        }
+        if (Number.isInteger(index)) {
+            const byIndex = this._elementsByIndex.get(index) || [];
+            if (!byIndex.includes(element)) byIndex.push(element);
+            this._elementsByIndex.set(index, byIndex);
+        }
+    }
+
+    rebuildDomRegistry(root = this.container) {
+        this.resetDomRegistry();
+        root?.querySelectorAll?.('[data-block-id], [data-index]')?.forEach(element => this.registerRenderedElement(element));
+    }
+
+    getRenderedElementsByBlockId(blockId) {
+        const id = String(blockId);
+        const elements = this._elementsByBlockId?.get?.(id) || [];
+        const connected = elements.filter(element => element?.isConnected);
+        if (connected.length) return connected;
+        const root = this.container || document;
+        return Array.from(root.querySelectorAll?.(`[data-block-id="${selectorEscape(id)}"]`) || []);
+    }
+
+    getRenderedElementsByIndex(index) {
+        const numericIndex = Number(index);
+        const elements = this._elementsByIndex?.get?.(numericIndex) || [];
+        const connected = elements.filter(element => element?.isConnected);
+        if (connected.length) return connected;
+        const root = this.container || document;
+        return Array.from(root.querySelectorAll?.(`[data-index="${numericIndex}"]`) || []);
     }
 
     getPageMetrics(doc) {
@@ -18301,7 +18917,7 @@ export class Renderer {
     }
 
     isBlockCurrentlySplit(index) {
-        const els = Array.from(document.querySelectorAll(`[data-index="${index}"]`));
+        const els = this.getRenderedElementsByIndex(index);
         return els.filter((el) => el.classList && el.classList.contains('block-text')).length > 1;
     }
 
@@ -18341,18 +18957,18 @@ export class Renderer {
     }
 
     shiftRenderedIndexes(startIndex, delta) {
-        const indexed = Array.from(document.querySelectorAll('[data-index]'))
-            .map((el) => ({ el, index: parseInt(el.dataset.index) }))
-            .filter((item) => Number.isInteger(item.index) && item.index >= startIndex)
-            .sort((a, b) => delta > 0 ? b.index - a.index : a.index - b.index);
-
-        indexed.forEach(({ el, index }) => {
-            el.dataset.index = String(index + delta);
-        });
+        const indexed = [];
+        for (const [index, elements] of this._elementsByIndex.entries()) {
+            if (index < startIndex) continue;
+            elements.forEach(el => indexed.push({ el, index }));
+        }
+        indexed.sort((a, b) => delta > 0 ? b.index - a.index : a.index - b.index);
+        indexed.forEach(({ el, index }) => { el.dataset.index = String(index + delta); });
+        this.rebuildDomRegistry();
     }
 
     getLastRenderedBlockElement(index) {
-        const els = Array.from(document.querySelectorAll(`[data-index="${index}"]`));
+        const els = this.getRenderedElementsByIndex(index);
         return els.length ? els[els.length - 1] : null;
     }
 
@@ -18361,37 +18977,41 @@ export class Renderer {
 
         if (op.type === 'ADD_BLOCK' && op.block && op.block.type === 'text') {
             const prevEl = this.getLastRenderedBlockElement(op.index - 1);
-            const nextEl = document.querySelector(`[data-index="${op.index}"]`);
+            const nextEl = this.getRenderedElementsByIndex(op.index)[0] || null;
             const anchor = prevEl || nextEl;
             const pageArea = anchor && anchor.closest ? anchor.closest('.page-content-area') : null;
             if (!pageArea) return false;
 
+            this.cancelPendingPagination();
             this.shiftRenderedIndexes(op.index, 1);
 
             const newEl = this.createTextBlockElement(op.block, op.index, op.block.content || '<br>', null);
             if (prevEl && prevEl.parentNode) prevEl.parentNode.insertBefore(newEl, prevEl.nextSibling);
             else if (nextEl && nextEl.parentNode) nextEl.parentNode.insertBefore(newEl, nextEl);
             else pageArea.appendChild(newEl);
+            this.registerRenderedElement(newEl);
 
             this.scheduleDeferredPagination();
             return false;
         }
 
         if (op.type === 'SPLIT_BLOCK' && op.splitAtStart && op.block && op.block.type === 'text') {
-            const firstOldEl = document.querySelector(`[data-index="${op.index}"]`);
+            const firstOldEl = this.getRenderedElementsByIndex(op.index)[0] || null;
             if (!firstOldEl || !firstOldEl.parentNode) return false;
 
+            this.cancelPendingPagination();
             this.shiftRenderedIndexes(op.index, 1);
 
             const newEl = this.createTextBlockElement(op.block, op.index, op.block.content || '<br>', null);
             firstOldEl.parentNode.insertBefore(newEl, firstOldEl);
+            this.registerRenderedElement(newEl);
 
             this.scheduleDeferredPagination();
             return false;
         }
 
         if (op.type === 'SPLIT_BLOCK' && op.block && op.newBlock && op.block.type === 'text' && op.newBlock.type === 'text') {
-            const textParts = Array.from(document.querySelectorAll(`[data-index="${op.index}"].block-text`));
+            const textParts = this.getRenderedElementsByIndex(op.index).filter(element => element.classList?.contains('block-text'));
             if (textParts.length !== 1) return true;
 
             const currentEl = textParts[0];
@@ -18400,10 +19020,12 @@ export class Renderer {
             currentEl.innerHTML = this.highlightText(op.block.content || '<br>', op.index) || '<br>';
             this.ensureCaretPlaceholder(currentEl);
 
+            this.cancelPendingPagination();
             this.shiftRenderedIndexes(op.index + 1, 1);
 
             const newEl = this.createTextBlockElement(op.newBlock, op.index + 1, op.newBlock.content || '<br>', null);
             currentEl.parentNode.insertBefore(newEl, currentEl.nextSibling);
+            this.registerRenderedElement(newEl);
 
             this.scheduleDeferredPagination();
             return false;
@@ -18412,21 +19034,63 @@ export class Renderer {
         return true;
     }
 
+    tryRenderModelInputInPlace(op) {
+        if (!op || op.type !== 'TRANSACTION' || this.highlightMatches.length) return false;
+        if (!['input', 'delete', 'composition', 'paste'].includes(op.source)) return false;
+        if (!Array.isArray(op.operations) || op.operations.length !== 1) return false;
+
+        const operation = op.operations[0];
+        const block = operation?.block;
+        if (operation?.type !== 'REPLACE_BLOCK_STATE' || block?.type !== 'text') return false;
+
+        const blockId = String(operation.blockId || block.id || '');
+        const index = this.sm.getBlockIndexById(blockId);
+        if (index < 0) return false;
+
+        const textParts = this.getRenderedElementsByBlockId(blockId).filter(element => element.classList?.contains('block-text'));
+        if (textParts.length !== 1) return false;
+
+        const element = textParts[0];
+        if (document.activeElement !== element) return false;
+
+        element.innerHTML = this.highlightText(block.content || '<br>', index) || '<br>';
+        this.ensureCaretPlaceholder(element);
+        this.insertFootnoteAnchorInText(element, index);
+        this.insertEndnoteAnchorInText(element, index);
+
+        const pageContent = element.closest('.page-content-area');
+        if (this.isPageView && pageContent && this.checkOverflow(pageContent)) return false;
+
+        return true;
+    }
+
     render(doc, hfMode, op) {
         const endPerf = openDocPerformance.mark('renderer.render');
         this._renderSeq++;
 
+        // beforeinput is model-backed, so the browser never mutates the editable
+        // DOM itself. Patch a single active text block without replacing its host;
+        // keeping the same focused element avoids a focusin/caret reset per key.
+        if (this.tryRenderModelInputInPlace(op)) {
+            endPerf({ op: op?.type || null, patched: true });
+            return true;
+        }
+
         if (op && op.source === 'enter') {
             const enterResult = this.tryRenderEnterInPlace(op);
-            if (enterResult === false) return false;
+            if (enterResult === false) {
+                endPerf({ op: op?.type || null, patched: true, deferredPagination: true });
+                return false;
+            }
         }
 
         if (op && op.type === 'UPDATE_BLOCK' && op.source === 'typing' && this.isPageView) {
-            const renderedParts = Array.from(document.querySelectorAll(`[data-index="${op.index}"]`));
+            const renderedParts = this.getRenderedElementsByIndex(op.index);
             const textParts = renderedParts.filter((el) => el.classList && el.classList.contains('block-text'));
             const blockIsSplit = textParts.length > 1;
 
             if (blockIsSplit && this.canKeepTypingRenderInPlace(op.index, renderedParts, textParts)) {
+                endPerf({ op: op?.type || null, patched: true });
                 return false;
             }
 
@@ -18445,12 +19109,18 @@ export class Renderer {
                     const isActive = (document.activeElement === el || (document.activeElement && document.activeElement.closest && document.activeElement.closest(`[data-index="${op.index}"]`) === el));
 
                     if (fits && isActive) {
+                        endPerf({ op: op?.type || null, patched: true });
                         return false;
                     }
                 }
             }
         }
 
+        const paginationGeneration = this.beginPaginationGeneration();
+        if (this._deferredRenderTimer) {
+            clearTimeout(this._deferredRenderTimer);
+            this._deferredRenderTimer = null;
+        }
         const wrapper = document.getElementById('workspace-wrapper');
         const prevScroll = wrapper ? wrapper.scrollTop : 0;
 
@@ -18470,9 +19140,11 @@ export class Renderer {
 
         this.container.className = this.isPageView ? 'mode-page' : 'mode-pageless';
         this.container.innerHTML = '';
+        this.resetDomRegistry();
 
-        if (this.isPageView) this.renderPaginated(doc, hfMode);
+        if (this.isPageView) this.renderPaginated(doc, hfMode, paginationGeneration);
         else this.renderContinuous(doc);
+        this.rebuildDomRegistry();
 
         if (wrapper) wrapper.scrollTop = prevScroll;
 
@@ -18655,7 +19327,7 @@ export class Renderer {
         const nextEl = this.createBlock(nextBlock, nextIndex);
         currentEl.dataset.keepProbe = '1'; nextEl.dataset.keepProbe = '1';
         page.contentArea.appendChild(currentEl); page.contentArea.appendChild(nextEl);
-        const fits = !this.checkOverflow(page.contentArea);
+        const fits = !this.checkOverflow(page.contentArea, nextEl);
         currentEl.remove(); nextEl.remove();
         return fits;
     }
@@ -18683,7 +19355,7 @@ export class Renderer {
                 const table = this.createTable(partial, index);
                 table.dataset.tableFragmentStart = String(startCursor);
                 page.contentArea.appendChild(table);
-                if (this.checkOverflow(page.contentArea)) {
+                if (this.checkOverflow(page.contentArea, table)) {
                     table.remove(); includedIndexes.pop();
                     if (!accepted && page.contentArea.children.length > 0) { page = addPageFn(); continue; }
                     if (!accepted) {
@@ -18716,22 +19388,31 @@ export class Renderer {
     resolveObjectCollisions(page) {
         const objects = [...page.querySelectorAll('.page-front-objects > .object-host, .page-behind-text-objects > .object-host')]
             .sort((a, b) => Number(a.style.zIndex || 0) - Number(b.style.zIndex || 0));
+        const rects = new Map(objects.map(object => [object, object.getBoundingClientRect()]));
         for (let i = 0; i < objects.length; i += 1) {
             const current = objects[i];
             const block = this.sm.getBlockById(current.dataset.blockId);
             if (block?.layout?.allowOverlap !== false || usesWrapProxy(block)) continue;
+            let currentRect = rects.get(current);
             for (let j = 0; j < i; j += 1) {
-                const other = objects[j];
-                const a = current.getBoundingClientRect(), b = other.getBoundingClientRect();
-                if (a.right > b.left && a.left < b.right && a.bottom > b.top && a.top < b.bottom) {
-                    const shift = b.bottom - a.top + 8;
+                const otherRect = rects.get(objects[j]);
+                if (!currentRect || !otherRect) continue;
+                if (currentRect.right > otherRect.left && currentRect.left < otherRect.right
+                    && currentRect.bottom > otherRect.top && currentRect.top < otherRect.bottom) {
+                    const shift = otherRect.bottom - currentRect.top + 8;
                     current.style.top = `${Number.parseFloat(current.style.top || 0) + shift}px`;
+                    currentRect = {
+                        ...currentRect,
+                        top: currentRect.top + shift,
+                        bottom: currentRect.bottom + shift
+                    };
+                    rects.set(current, currentRect);
                 }
             }
         }
     }
 
-    renderPaginated(doc, hfMode) {
+    renderPaginated(doc, hfMode, generation = this._paginationGeneration) {
         const endPerf = openDocPerformance.mark('renderer.paginate');
         this._lastPaginateSeq++;
         let pageNum = 1;
@@ -18778,7 +19459,7 @@ export class Renderer {
             const el = this.createBlock(block, index);
             currentPage.contentArea.appendChild(el);
 
-            if (!this.checkOverflow(currentPage.contentArea)) {
+            if (!this.checkOverflow(currentPage.contentArea, el)) {
                 return;
             }
 
@@ -18817,9 +19498,17 @@ export class Renderer {
             (layer || targetPage).appendChild(element);
         };
 
+        // Index blocks once. Avoid repeated Array#indexOf scans while flowing,
+        // positioning wrapped objects, and processing large documents.
+        const indexedBlocks = (doc.blocks || []).map((block, index) => ({ block, index }));
+        const blockIds = new Set(indexedBlocks.map(entry => entry.block?.id).filter(Boolean));
+        const floating = indexedBlocks.filter(({ block }) => block.type === 'floating' || (isObjectBlock(block) && !isFlowObject(block)));
+        const nonFloating = indexedBlocks.filter(({ block }) => block.type !== 'floating' && !(isObjectBlock(block) && !isFlowObject(block)));
+
         const renderFloatingObjects = () => {
+            if (!this.isPaginationCurrent(generation)) return;
             this.container.querySelectorAll('[data-object-layer-instance="1"]').forEach(element => element.remove());
-            floating.forEach(block => flowFloating(block, doc.blocks.indexOf(block)));
+            floating.forEach(({ block, index }) => flowFloating(block, index));
             pages.forEach(page => this.resolveObjectCollisions(page));
         };
 
@@ -18828,18 +19517,15 @@ export class Renderer {
         // objects get an invisible float proxy immediately before their anchor so the
         // browser lays out the anchor paragraph and following text around the object's
         // real geometry.
-        const floating = doc.blocks.filter(block => block.type === 'floating' || (isObjectBlock(block) && !isFlowObject(block)));
-        const nonFloating = doc.blocks.filter(block => block.type !== 'floating' && !(isObjectBlock(block) && !isFlowObject(block)));
         const wrappedByAnchor = new Map();
         const wrappedFallbackBefore = new Map();
         const trailingWrapped = [];
-        const nonFloatingIndexes = nonFloating.map(block => doc.blocks.indexOf(block));
+        const nonFloatingIndexes = nonFloating.map(entry => entry.index);
 
-        floating.forEach(block => {
+        floating.forEach(({ block, index: objectIndex }) => {
             if (!isObjectBlock(block) || !usesWrapProxy(block)) return;
-            const objectIndex = doc.blocks.indexOf(block);
             const anchorId = block.anchor?.blockId;
-            if (anchorId && doc.blocks.some(candidate => candidate.id === anchorId && candidate !== block)) {
+            if (anchorId && blockIds.has(anchorId) && anchorId !== block.id) {
                 const list = wrappedByAnchor.get(anchorId) || [];
                 list.push({ block, index: objectIndex });
                 wrappedByAnchor.set(anchorId, list);
@@ -18861,7 +19547,7 @@ export class Renderer {
             const offsets = this.resolveWrapProxyOffsets(block, currentPage, currentPage.contentArea, anchorProbe);
             let proxy = this.createObjectWrapProxy(block, index, currentPage.contentArea, offsets);
             currentPage.contentArea.appendChild(proxy);
-            if (this.checkOverflow(currentPage.contentArea) && currentPage.contentArea.children.length > 1) {
+            if (this.checkOverflow(currentPage.contentArea, proxy) && currentPage.contentArea.children.length > 1) {
                 proxy.remove();
                 currentPage = addPage();
                 const pageOffsets = this.resolveWrapProxyOffsets(block, currentPage, currentPage.contentArea, null);
@@ -18871,13 +19557,15 @@ export class Renderer {
         };
 
         const flowAt = i => {
-            const block = nonFloating[i];
-            const docIndex = doc.blocks.indexOf(block);
-            const next = nonFloating[i + 1];
-            if (this.shouldKeepWithNext(block) && next && currentPage.contentArea.children.length && !this.canPairFit(currentPage, block, docIndex, next, doc.blocks.indexOf(next))) currentPage = addPage();
+            const entry = nonFloating[i];
+            if (!entry) return;
+            const { block, index: docIndex } = entry;
+            const nextEntry = nonFloating[i + 1];
+            if (this.shouldKeepWithNext(block) && nextEntry && currentPage.contentArea.children.length
+                && !this.canPairFit(currentPage, block, docIndex, nextEntry.block, nextEntry.index)) currentPage = addPage();
             const anchored = wrappedByAnchor.get(block.id) || [];
             const fallback = wrappedFallbackBefore.get(docIndex) || [];
-            [...anchored, ...fallback].forEach(entry => placeWrapProxy(entry, block));
+            [...anchored, ...fallback].forEach(proxyEntry => placeWrapProxy(proxyEntry, block));
             flowBlock(block, docIndex);
         };
         for (let i = 0; i < Math.min(nonFloating.length, initialBatch); i++) flowAt(i);
@@ -18888,27 +19576,29 @@ export class Renderer {
         if (nonFloating.length > initialBatch) {
             let deferredIdx = initialBatch;
             const renderNextBatch = () => {
+                if (!this.isPaginationCurrent(generation)) return;
                 const batchEnd = Math.min(deferredIdx + 10, nonFloating.length);
                 for (; deferredIdx < batchEnd; deferredIdx++) flowAt(deferredIdx);
-                if (deferredIdx < nonFloating.length) requestAnimationFrame(renderNextBatch);
+                if (deferredIdx < nonFloating.length) this.schedulePaginationFrame(renderNextBatch, generation);
                 else {
                     trailingWrapped.forEach(entry => placeWrapProxy(entry));
                     renderFloatingObjects();
                     pages.forEach((page, pageIndex) => this.renderFootnotesOnPage(page, pageIndex));
                     this.renderEndnotesAtEnd();
+                    this.rebuildDomRegistry();
                     const pageCountEl = document.getElementById('page-count');
                     if (pageCountEl) pageCountEl.innerText = `Page 1 of ${pages.length}`;
                     this.sm.signal?.('PAGINATION_COMPLETED', { pageCount: pages.length });
                 }
             };
-            requestAnimationFrame(renderNextBatch);
+            this.schedulePaginationFrame(renderNextBatch, generation);
         }
         endPerf({ pages: pages.length, blocks: doc.blocks?.length || 0 });
     }
 
-    getContentOverflowLimit(container) {
+    getContentOverflowLimit(container, measuredContainerRect = null) {
         if (!container) return null;
-        const containerRect = container.getBoundingClientRect();
+        const containerRect = measuredContainerRect || container.getBoundingClientRect();
         if (!containerRect || !containerRect.height) return null;
 
         const page = container.closest?.('.page');
@@ -18930,27 +19620,32 @@ export class Renderer {
         return Number.isFinite(limit) && limit > containerRect.top ? limit : null;
     }
 
-    checkOverflow(container) {
+    checkOverflow(container, candidate = null) {
         if (!container) return false;
 
-        const containerRect = container.getBoundingClientRect();
         const ch = container.clientHeight;
-        const limit = this.getContentOverflowLimit(container);
+        const containerRect = container.getBoundingClientRect();
+        const limit = this.getContentOverflowLimit(container, containerRect);
 
         if (ch && ch >= 10 && (container.scrollHeight - ch) > 1) return true;
 
-        const children = Array.from(container.children);
         const bottomLimit = limit || (ch && containerRect ? containerRect.top + containerRect.height : null);
         if (!bottomLimit) return false;
 
-        for (const child of children) {
-            if (!child || child.classList.contains('floating-box')) continue;
-            if (child.dataset.objectLayerInstance === '1') continue;
-            const rect = child.getBoundingClientRect();
-            if ((rect.bottom - bottomLimit) > 1) return true;
+        let probe = candidate;
+        if (!probe || probe.parentElement !== container || probe.dataset?.objectLayerInstance === '1'
+            || probe.classList?.contains('floating-box')) {
+            const children = container.children;
+            for (let index = children.length - 1; index >= 0; index -= 1) {
+                const child = children[index];
+                if (!child || child.classList.contains('floating-box')) continue;
+                if (child.dataset.objectLayerInstance === '1') continue;
+                probe = child;
+                break;
+            }
         }
-
-        return false;
+        if (!probe) return false;
+        return (probe.getBoundingClientRect().bottom - bottomLimit) > 1;
     }
 
     getCleanEditableHtml(el) {
@@ -19119,7 +19814,7 @@ export class Renderer {
             tester.innerHTML = this.highlightText(probe.a, index) || '';
             this.ensureCaretPlaceholder(tester);
 
-            if (!this.checkOverflow(tester.parentElement)) {
+            if (!this.checkOverflow(tester.parentElement, tester)) {
                 best = mid;
                 low = mid + 1;
             } else {
@@ -19141,10 +19836,10 @@ export class Renderer {
         if (this.shouldKeepLines(block)) {
             const whole = this.createTextBlockElement(block, index, remainingHtml, 0);
             currentPage.contentArea.appendChild(whole);
-            if (this.checkOverflow(currentPage.contentArea) && currentPage.contentArea.children.length > 1) {
+            if (this.checkOverflow(currentPage.contentArea, whole) && currentPage.contentArea.children.length > 1) {
                 whole.remove(); currentPage = addPageFn(); currentPage.contentArea.appendChild(whole);
             }
-            if (!this.checkOverflow(currentPage.contentArea)) return currentPage;
+            if (!this.checkOverflow(currentPage.contentArea, whole)) return currentPage;
             whole.remove();
         }
 
@@ -19153,7 +19848,7 @@ export class Renderer {
             this.ensureCaretPlaceholder(emptyEl);
             currentPage.contentArea.appendChild(emptyEl);
 
-            if (this.checkOverflow(currentPage.contentArea)) {
+            if (this.checkOverflow(currentPage.contentArea, emptyEl)) {
                 currentPage.contentArea.removeChild(emptyEl);
                 currentPage = addPageFn();
                 currentPage.contentArea.appendChild(emptyEl);
@@ -19178,7 +19873,7 @@ export class Renderer {
             tester.innerHTML = this.highlightText(remainingHtml, index) || '';
             this.ensureCaretPlaceholder(tester);
 
-            if (!this.checkOverflow(currentPage.contentArea)) {
+            if (!this.checkOverflow(currentPage.contentArea, tester)) {
                 tester.dataset.splitPart = String(partIndex);
                 delete tester.dataset.splitTester;
                 return currentPage;
@@ -20741,7 +21436,7 @@ export function earliestAffectedBlockIndex(state, impact) {
     return Number.isFinite(earliest) ? earliest : -1;
 }
 
-// ===== /home/luanngo/opendoc/public/ruler-manager.js (2026-07-09 05:10:32) =====
+// ===== /home/luanngo/opendoc/public/ruler-manager.js (2026-07-18 03:14:19) =====
 import { getPageMetrics, getActivePageElement, measurePageDom } from './layout/page-metrics.js';
 
 export class RulerManager {
@@ -20750,6 +21445,7 @@ export class RulerManager {
         this.state = ctrl.state;
         this.renderer = ctrl.renderer;
         this.draggingTab = null;
+        this._syncFrame = null;
     }
 
     setup() {
@@ -20759,11 +21455,20 @@ export class RulerManager {
         this.attachIndentDrag('marker-first-line-indent', 'firstLineIndent');
         this.attachIndentDrag('marker-hanging-indent', 'hangingIndent');
         this.attachTabStopInteraction();
-        this.state.subscribe(() => requestAnimationFrame(() => this.sync()));
-        document.addEventListener('opendoc:deferred-pagination', () => this.sync());
-        window.addEventListener('resize', () => this.sync());
-        document.getElementById('workspace-wrapper')?.addEventListener('scroll', () => this.sync(), { passive: true });
+        this.state.subscribe(() => this.scheduleSync());
+        this.state.subscribeTo('SELECTION_CHANGED', () => this.scheduleSync());
+        document.addEventListener('opendoc:deferred-pagination', () => this.scheduleSync());
+        window.addEventListener('resize', () => this.scheduleSync());
+        document.getElementById('workspace-wrapper')?.addEventListener('scroll', () => this.scheduleSync(), { passive: true });
         this.sync();
+    }
+
+    scheduleSync() {
+        if (this._syncFrame) return;
+        this._syncFrame = requestAnimationFrame(() => {
+            this._syncFrame = null;
+            this.sync();
+        });
     }
 
     ensureRulerUi() {
@@ -21626,7 +22331,7 @@ export class SidebarManager {
     }
 }
 
-// ===== /home/luanngo/opendoc/public/smart-input-manager.js (2026-07-03 16:17:51) =====
+// ===== /home/luanngo/opendoc/public/smart-input-manager.js (2026-07-18 03:14:20) =====
 import { Formatter } from './formatter.js';
 
 /**
@@ -21671,7 +22376,7 @@ export class SmartInputManager {
 
         document.addEventListener('input', (event) => this.handleInput(event));
         document.addEventListener('keydown', (event) => this.handleKeydown(event), true);
-        document.addEventListener('selectionchange', () => {
+        this.state.subscribeTo('SELECTION_CHANGED', () => {
             if (!this.menu.classList.contains('hidden') && !this.getActiveTextContext()) this.closeMenu();
         });
         document.addEventListener('mousedown', (event) => {
@@ -22022,7 +22727,7 @@ export class SmartInputManager {
     }
 }
 
-// ===== /home/luanngo/opendoc/public/state.js (2026-07-13 01:01:37) =====
+// ===== /home/luanngo/opendoc/public/state.js (2026-07-18 03:18:06) =====
 import { HistoryManager } from './history.js';
 import { Formatter } from './formatter.js';
 import { normalizeMargins, normalizePageSize } from './layout/page-metrics.js';
@@ -22066,6 +22771,12 @@ export class StateManager {
         this.retryDelay = 4000;
         this._transactionDepth = 0;
         this.collaborationOwnsPersistence = false;
+        this._blockIndexById = new Map();
+        this._blockById = new Map();
+        this._indexedBlocksRef = this.doc.blocks;
+        this._indexedBlockCount = 0;
+        this._blockIndexDirty = false;
+        this.rebuildBlockIndex();
         this.setupAutosave();
     }
 
@@ -22090,12 +22801,58 @@ export class StateManager {
 
     // CHANGED: notify now passes the operation that caused the change
     notify(op = null) {
+        this.ensureBlockIndex();
         this.listeners.forEach(fn => fn(this.doc, this.hfMode, op));
         if (op && op.type && this._typedListeners[op.type]) {
             this._typedListeners[op.type].forEach(fn => fn(op, this.doc, this.hfMode));
         }
         if (this._typedListeners['*']) {
             this._typedListeners['*'].forEach(fn => fn(op, this.doc, this.hfMode));
+        }
+    }
+
+
+    isStructuralBlockOperation(op) {
+        const type = typeof op === 'string' ? op : op?.type;
+        switch (type) {
+            case 'ADD_BLOCK':
+            case 'REMOVE_BLOCK':
+            case 'SPLIT_BLOCK':
+            case 'UNSPLIT_BLOCK':
+            case 'MOVE_BLOCK':
+            case 'MERGE_BLOCKS':
+            case 'MOVE_SECTION':
+            case 'DOCUMENT_LOADED':
+            case 'LOCAL_DRAFT_RECOVERED':
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    rebuildBlockIndex() {
+        const blocks = Array.isArray(this.doc?.blocks) ? this.doc.blocks : [];
+        this._blockIndexById.clear();
+        this._blockById.clear();
+        for (let index = 0; index < blocks.length; index += 1) {
+            const block = blocks[index];
+            if (!block?.id) continue;
+            const id = String(block.id);
+            this._blockIndexById.set(id, index);
+            this._blockById.set(id, block);
+        }
+        this._indexedBlocksRef = blocks;
+        this._indexedBlockCount = blocks.length;
+        this._blockIndexDirty = false;
+    }
+
+    ensureBlockIndex(op = null) {
+        const blocks = Array.isArray(this.doc?.blocks) ? this.doc.blocks : [];
+        if (this._blockIndexDirty
+            || this._indexedBlocksRef !== blocks
+            || this._indexedBlockCount !== blocks.length
+            || this.isStructuralBlockOperation(op)) {
+            this.rebuildBlockIndex();
         }
     }
 
@@ -22531,6 +23288,22 @@ export class StateManager {
                 break;
             }
         }
+        if (this.isStructuralBlockOperation(op)) this._blockIndexDirty = true;
+        else if (op.type === 'REPLACE_BLOCK_STATE' && op.block?.id) {
+            if (this._blockIndexDirty) {
+                // A prior structural operation in this transaction changed indexes.
+                // Defer one rebuild until an ID lookup or the transaction notification.
+            } else {
+                const id = String(op.block.id);
+                const previousId = op.prevBlock?.id ? String(op.prevBlock.id) : null;
+                if (previousId && previousId !== id) {
+                    this._blockIndexById.delete(previousId);
+                    this._blockById.delete(previousId);
+                }
+                this._blockIndexById.set(id, op.index);
+                this._blockById.set(id, op.block);
+            }
+        }
         if (notify) this.notify(op);
         if (dirty) this.markDirty();
     }
@@ -22688,15 +23461,26 @@ export class StateManager {
 
     getBlockIndexById(blockId) {
         if (!blockId) return -1;
-        for (let i = 0; i < this.doc.blocks.length; i++) {
-            if (this.doc.blocks[i].id === blockId) return i;
-        }
-        return -1;
+        this.ensureBlockIndex();
+        const id = String(blockId);
+        const index = this._blockIndexById.get(id);
+        if (Number.isInteger(index) && String(this.doc.blocks[index]?.id) === id) return index;
+
+        // Self-heal when legacy code mutates the block array directly without a
+        // structural notification. This path should be rare and keeps lookups
+        // correct while preserving O(1) access during normal editing.
+        this.rebuildBlockIndex();
+        return this._blockIndexById.get(id) ?? -1;
     }
 
     getBlockById(blockId) {
-        const idx = this.getBlockIndexById(blockId);
-        return idx >= 0 ? this.doc.blocks[idx] : null;
+        if (!blockId) return null;
+        this.ensureBlockIndex();
+        const id = String(blockId);
+        const block = this._blockById.get(id);
+        if (block && String(block.id) === id) return block;
+        this.rebuildBlockIndex();
+        return this._blockById.get(id) || null;
     }
 
     ensureBlockId(block) {
@@ -23318,6 +24102,7 @@ export class StateManager {
         const afterSig = JSON.stringify((data.blocks || []).map(b => ({ t: b.type, c: b.content, id: b.id })));
 
         this.doc = data;
+        this.rebuildBlockIndex();
         this.hfMode = false;
         this.isDirty = false;
         this._changeSeq = 0;
@@ -23432,6 +24217,7 @@ export class StateManager {
             recovered.settings.schemaVersion = 2;
         }
         this.doc = recovered;
+        this.rebuildBlockIndex();
         this.pendingRecovery = null;
         this.isDirty = true;
         this._changeSeq += 1;
@@ -23727,8 +24513,8 @@ export class StateManager {
     }
 }
 
-// ===== /home/luanngo/opendoc/public/sw.js (2026-07-09 17:48:13) =====
-const CACHE_NAME = 'opendoc-v10-phase55-60-word-features';
+// ===== /home/luanngo/opendoc/public/sw.js (2026-07-15 01:06:05) =====
+const CACHE_NAME = 'opendoc-v11-docx-export-ui';
 const ASSETS = [
   '/',
   '/index.html',
@@ -23756,6 +24542,8 @@ const ASSETS = [
   '/layout/page-metrics.js',
   '/editor/clipboard/paste-normalizer.js',
   '/manifest.json',
+  '/vendor/docx.js',
+  '/vendor/mammoth.browser.min.js',
 ];
 
 self.addEventListener('install', (event) => {
@@ -23800,7 +24588,7 @@ self.addEventListener('activate', (event) => {
   })());
 });
 
-// ===== /home/luanngo/opendoc/public/toolbar-manager.js (2026-07-03 16:19:45) =====
+// ===== /home/luanngo/opendoc/public/toolbar-manager.js (2026-07-18 03:14:23) =====
 export class ToolbarManager {
     constructor(ctrl) {
         this.ctrl = ctrl;
@@ -23889,8 +24677,8 @@ export class ToolbarManager {
         return insertAt;
     }
 
-    updateToolbarState() {
-        const marks = this.ctrl.engine.captureSelection()?.marks || [];
+    updateToolbarState(modelSelection = null) {
+        const marks = (modelSelection || this.ctrl.engine.captureSelection())?.marks || [];
         ['bold', 'italic', 'underline', 'strikethrough', 'code', 'superscript', 'subscript'].forEach((m) => {
             const active = marks.includes(m);
             const b = document.getElementById(`btn-${m}`);
@@ -23901,8 +24689,8 @@ export class ToolbarManager {
         });
     }
 
-    updateContextualToolbar() {
-        const ctx = this.ctrl.getActiveBlockContextFromSelection();
+    updateContextualToolbar(context = null) {
+        const ctx = context || this.ctrl.getActiveBlockContextFromSelection();
         const sel = window.getSelection();
 
         const hasSelection = sel && !sel.isCollapsed && sel.toString().trim().length > 0;
@@ -23928,11 +24716,8 @@ export class ToolbarManager {
     }
 
     setupContextualToolbar() {
-        document.addEventListener('selectionchange', () => {
-            this.updateContextualToolbar();
-            this.updateFloatingToolbar();
-        });
-        document.addEventListener('focusin', () => this.updateContextualToolbar());
+        // Selection work is coordinated by EditorController so toolbar, table,
+        // ruler, collaboration and smart-input consumers share one capture/frame.
     }
 
     updateFloatingToolbar() {
@@ -24247,10 +25032,10 @@ export class ToolbarManager {
                 document.getElementById('inp-docx-import')?.click();
                 break;
             case 'export-docx':
-                ctrl.exportDOCX();
+                await ctrl.exportDOCX();
                 break;
             case 'export-pdf':
-                ctrl.exportPDF();
+                await ctrl.exportPDF();
                 break;
             case 'print':
                 ctrl.printDocument();
@@ -24558,10 +25343,60 @@ export class ToolbarManager {
         });
     }
 
+    setupExportMenu() {
+        const trigger = document.getElementById('btn-export-menu');
+        const menu = document.getElementById('export-menu');
+        if (!trigger || !menu) return;
+
+        const label = trigger.querySelector('.export-primary-label');
+        const close = () => {
+            menu.classList.add('hidden');
+            trigger.setAttribute('aria-expanded', 'false');
+        };
+        const open = () => {
+            menu.classList.remove('hidden');
+            trigger.setAttribute('aria-expanded', 'true');
+            menu.querySelector('[role="menuitem"]')?.focus();
+        };
+        const setBusy = (busy, format = '') => {
+            trigger.disabled = busy;
+            trigger.setAttribute('aria-busy', String(busy));
+            trigger.classList.toggle('is-busy', busy);
+            if (label) label.textContent = busy ? (format === 'pdf' ? 'PDF…' : 'Word…') : 'Download';
+            menu.querySelectorAll('button').forEach(button => { button.disabled = busy; });
+        };
+
+        trigger.addEventListener('click', (event) => {
+            event.stopPropagation();
+            if (trigger.disabled) return;
+            if (menu.classList.contains('hidden')) open();
+            else close();
+        });
+        menu.addEventListener('click', async (event) => {
+            const item = event.target.closest('[data-export-action]');
+            if (!item || item.disabled) return;
+            const format = item.dataset.exportAction;
+            close();
+            if (format === 'docx') await this.ctrl.exportDOCX();
+            if (format === 'pdf') await this.ctrl.exportPDF();
+        });
+        document.addEventListener('opendoc:export-state', (event) => {
+            const detail = event.detail || {};
+            setBusy(!!detail.busy, detail.format || '');
+        });
+        document.addEventListener('click', (event) => {
+            if (!menu.classList.contains('hidden') && !menu.contains(event.target) && !trigger.contains(event.target)) close();
+        });
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') close();
+        });
+    }
+
     setupApplicationShell() {
         this.setupToolbarMode();
         this.setupCompactToolbar();
         this.setupFileMenu();
+        this.setupExportMenu();
         this.setupCommandSearch();
         this.setupShellPanels();
 
@@ -25820,7 +26655,7 @@ class UsageManager {
 
 module.exports = { UsageManager };
 
-// ===== /home/luanngo/opendoc/server.js (2026-07-13 01:02:06) =====
+// ===== /home/luanngo/opendoc/server.js (2026-07-15 01:06:26) =====
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
@@ -25877,6 +26712,21 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 const DIST_DIR = path.join(PUBLIC_DIR, 'dist');
+const VENDOR_ASSETS = {
+    'docx.js': path.join(__dirname, 'node_modules', 'docx', 'build', 'index.js'),
+    'mammoth.browser.min.js': path.join(__dirname, 'node_modules', 'mammoth', 'mammoth.browser.min.js')
+};
+
+app.get('/vendor/:asset', (req, res) => {
+    const assetPath = VENDOR_ASSETS[req.params.asset];
+    if (!assetPath) return res.status(404).end();
+    if (!fs.existsSync(assetPath)) {
+        return res.status(503).type('text/plain').send('Export dependency is not installed. Run npm install and restart OpenWord.');
+    }
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    return res.sendFile(assetPath);
+});
+
 if (fs.existsSync(DIST_DIR)) app.use(express.static(DIST_DIR));
 app.use(express.static(PUBLIC_DIR));
 app.use('/uploads', express.static(UPLOADS_DIR));
@@ -27375,7 +28225,86 @@ describe('AI server validation and context', () => {
   });
 });
 
-// ===== /home/luanngo/opendoc/tests/e2e/editing.spec.js (2026-07-13 01:54:55) =====
+// ===== /home/luanngo/opendoc/tests/controller-selection.test.js (2026-07-15 01:25:22) =====
+/* @vitest-environment jsdom */
+
+import { describe, expect, it, vi } from 'vitest';
+import { EditorController } from '../public/controller.js';
+import { Renderer } from '../public/renderer.js';
+
+describe('EditorController transaction selection restore', () => {
+  it('restores the transaction selection after a full render', () => {
+    document.body.innerHTML = '<div id="doc-title-display"></div>';
+    const before = {
+      type: 'text',
+      anchor: { blockId: 'b1', offset: 3 },
+      focus: { blockId: 'b1', offset: 3 }
+    };
+    const after = {
+      type: 'text',
+      anchor: { blockId: 'b1', offset: 4 },
+      focus: { blockId: 'b1', offset: 4 }
+    };
+    const restore = vi.fn();
+    const controller = Object.assign(Object.create(EditorController.prototype), {
+      state: { doc: { title: 'Test' }, hfMode: false },
+      renderer: { render: vi.fn(() => true) },
+      engine: {
+        captureSelection: vi.fn(() => before),
+        setSelection: vi.fn(),
+        selectionBridge: { restore }
+      },
+      outline: { updateOutline: vi.fn() },
+      _pendingOp: { type: 'TRANSACTION', source: 'input', selectionAfter: after },
+      _renderBatchTimer: null,
+      savedSelection: null,
+      docMetaUpdateTimer: null
+    });
+    controller.updateStats = vi.fn();
+
+    controller._flushRender();
+
+    expect(controller.engine.setSelection).toHaveBeenCalledWith(after);
+    expect(restore).toHaveBeenCalledWith(after, { preventScroll: true });
+    expect(controller._pendingOp).toBeNull();
+  });
+});
+
+describe('Renderer model input updates', () => {
+  it('updates the active text block without replacing or refocusing it', () => {
+    document.body.innerHTML = '<div class="page-content-area"><div class="block-text" data-block-id="b1" data-index="0" contenteditable="true">old</div></div>';
+    const element = document.querySelector('.block-text');
+    element.focus();
+    let focusEvents = 0;
+    element.addEventListener('focusin', () => { focusEvents += 1; });
+
+    const renderer = Object.assign(Object.create(Renderer.prototype), {
+      sm: { getBlockIndexById: vi.fn(() => 0) },
+      highlightMatches: [],
+      isPageView: false,
+      ensureCaretPlaceholder: vi.fn(),
+      insertFootnoteAnchorInText: vi.fn(),
+      insertEndnoteAnchorInText: vi.fn()
+    });
+    const operation = {
+      type: 'REPLACE_BLOCK_STATE',
+      blockId: 'b1',
+      block: { id: 'b1', type: 'text', content: '<ins class="rev-insertion">new</ins>' }
+    };
+
+    expect(renderer.tryRenderModelInputInPlace({
+      type: 'TRANSACTION',
+      source: 'input',
+      operations: [operation]
+    })).toBe(true);
+    expect(document.querySelector('.block-text')).toBe(element);
+    expect(document.activeElement).toBe(element);
+    expect(element.textContent).toBe('new');
+    expect(focusEvents).toBe(0);
+  });
+});
+
+// ===== /home/luanngo/opendoc/tests/e2e/editing.spec.js (2026-07-15 01:07:41) =====
 import { test, expect } from '@playwright/test';
 
 test.describe('Document Editor E2E', () => {
@@ -27661,6 +28590,20 @@ test.describe('Document Editor E2E', () => {
   });
 });
 
+
+test('download menu makes Word and PDF exports easy to find', async ({ page }) => {
+  await page.goto('/');
+  await page.waitForSelector('#workspace', { timeout: 10000 });
+
+  const trigger = page.locator('#btn-export-menu');
+  await expect(trigger).toBeVisible();
+  await trigger.click();
+
+  await expect(page.locator('#export-menu [data-export-action="docx"]')).toBeVisible();
+  await expect(page.locator('#export-menu [data-export-action="pdf"]')).toBeVisible();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+});
+
 // ===== /home/luanngo/opendoc/tests/editor-engine.test.js (2026-07-13 01:02:11) =====
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { EditorEngine } from '../public/editor/editor-engine.js';
@@ -27815,6 +28758,115 @@ describe('EditorEngine', () => {
         expect(engine.commands.has('removeBlock')).toBe(true);
         expect(engine.commands.has('splitTextBlock')).toBe(true);
     });
+});
+
+// ===== /home/luanngo/opendoc/tests/export-import.test.js (2026-07-15 01:07:36) =====
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ExportImport, sanitizeDownloadName } from '../public/export-import.js';
+
+class FakeDocxNode {
+  constructor(options) {
+    this.options = options;
+  }
+}
+
+function createDocxRuntime() {
+  return {
+    Document: FakeDocxNode,
+    Paragraph: FakeDocxNode,
+    TextRun: FakeDocxNode,
+    ExternalHyperlink: FakeDocxNode,
+    Header: FakeDocxNode,
+    Footer: FakeDocxNode,
+    Packer: { toBlob: vi.fn(async () => new Blob(['word-file'], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })) },
+    HeadingLevel: {
+      HEADING_1: 'Heading1', HEADING_2: 'Heading2', HEADING_3: 'Heading3',
+      HEADING_4: 'Heading4', HEADING_5: 'Heading5', HEADING_6: 'Heading6'
+    },
+    AlignmentType: { LEFT: 'left', CENTER: 'center', RIGHT: 'right', JUSTIFIED: 'both' },
+    PageOrientation: { PORTRAIT: 'portrait', LANDSCAPE: 'landscape' },
+    PageNumber: { CURRENT: 'current' }
+  };
+}
+
+function createController() {
+  const state = {
+    doc: {
+      id: 'doc_export_test',
+      title: 'Quarter / Report:*?',
+      blocks: [{ id: 'block_1', type: 'text', style: 'normal', content: '<strong>Hello</strong> world' }],
+      settings: { pageSize: 'letter', orientation: 'portrait', margins: { top: 1, right: 1, bottom: 1, left: 1 } },
+      styles: { normal: { id: 'normal', name: 'Normal', fontFamily: 'Arial', fontSize: 12 } }
+    },
+    flushSave: vi.fn(async () => undefined)
+  };
+  return {
+    state,
+    syncCurrentTextBlockFromDom: vi.fn(),
+    toolbar: { showShellToast: vi.fn() }
+  };
+}
+
+describe('DOCX export', () => {
+  let originalDocx;
+  let createObjectURL;
+  let revokeObjectURL;
+  let clickSpy;
+
+  beforeEach(() => {
+    originalDocx = globalThis.docx;
+    globalThis.docx = createDocxRuntime();
+    createObjectURL = vi.fn(() => 'blob:openword-export');
+    revokeObjectURL = vi.fn();
+    Object.defineProperty(window.URL, 'createObjectURL', { configurable: true, value: createObjectURL });
+    Object.defineProperty(window.URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURL });
+    clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    globalThis.docx = originalDocx;
+    clickSpy.mockRestore();
+    vi.restoreAllMocks();
+  });
+
+  it('creates safe Word filenames without duplicating the extension', () => {
+    expect(sanitizeDownloadName('Quarter / Report:*?', '.docx')).toBe('Quarter Report.docx');
+    expect(sanitizeDownloadName('Board Minutes.docx', 'docx')).toBe('Board Minutes.docx');
+    expect(sanitizeDownloadName('CON', '.docx')).toBe('_CON.docx');
+  });
+
+  it('builds and downloads a DOCX from the current document model', async () => {
+    const controller = createController();
+    const exporter = new ExportImport(controller);
+    let downloadedName = '';
+    clickSpy.mockImplementation(function captureDownload() {
+      downloadedName = this.download;
+    });
+
+    const stateEvents = [];
+    document.addEventListener('opendoc:export-state', event => stateEvents.push(event.detail), { once: false });
+    const result = await exporter.exportDOCX();
+
+    expect(result).toBeInstanceOf(Blob);
+    expect(controller.syncCurrentTextBlockFromDom).toHaveBeenCalledOnce();
+    expect(controller.state.flushSave).toHaveBeenCalledOnce();
+    expect(globalThis.docx.Packer.toBlob).toHaveBeenCalledOnce();
+    expect(createObjectURL).toHaveBeenCalledWith(result);
+    expect(downloadedName).toBe('Quarter Report.docx');
+    expect(controller.toolbar.showShellToast).toHaveBeenLastCalledWith('Word document downloaded');
+    expect(stateEvents.at(0)).toMatchObject({ format: 'docx', busy: true });
+    expect(stateEvents.at(-1)).toMatchObject({ format: 'docx', busy: false });
+  });
+
+  it('fails cleanly when the DOCX runtime is unavailable', async () => {
+    delete globalThis.docx;
+    const controller = createController();
+    const exporter = new ExportImport(controller);
+
+    await expect(exporter.exportDOCX()).resolves.toBe(false);
+    expect(clickSpy).not.toHaveBeenCalled();
+    expect(controller.toolbar.showShellToast).toHaveBeenLastCalledWith(expect.stringContaining('Word export components are unavailable'));
+  });
 });
 
 // ===== /home/luanngo/opendoc/tests/formatter.test.js (2026-07-01 13:17:53) =====
@@ -28309,6 +29361,193 @@ describe('paste normalizer', () => {
     const blocks = normalizeClipboardToBlocks({ html: '<b>To: Councillor Subject: Request Dear Councillor Body text.</b>', text });
     expect(blocks.length).toBeGreaterThan(1);
     expect(blocks.every(block => block.type !== 'text' || !/font-weight/i.test(block.content || ''))).toBe(true);
+  });
+});
+
+// ===== /home/luanngo/opendoc/tests/performance-core.test.js (2026-07-18 03:18:27) =====
+/* @vitest-environment jsdom */
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { StateManager } from '../public/state.js';
+import { Transaction } from '../public/editor/transaction.js';
+import { Renderer } from '../public/renderer.js';
+import { EditorController } from '../public/controller.js';
+
+describe('performance core: indexed document access', () => {
+  let state;
+
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="save-status"></div>';
+    state = new StateManager();
+    state.doc.blocks = [
+      { id: 'blk_a', type: 'text', style: 'normal', content: 'A' },
+      { id: 'blk_b', type: 'text', style: 'normal', content: 'B' },
+      { id: 'blk_c', type: 'text', style: 'normal', content: 'C' }
+    ];
+    state.rebuildBlockIndex();
+  });
+
+  it('keeps O(1) block indexes correct after add, remove and move operations', () => {
+    state.applyOp({
+      type: 'ADD_BLOCK',
+      index: 1,
+      block: { id: 'blk_new', type: 'text', style: 'normal', content: 'New' }
+    }, false, { dirty: false });
+    expect(state.getBlockIndexById('blk_new')).toBe(1);
+    expect(state.getBlockIndexById('blk_b')).toBe(2);
+
+    state.applyOp({ type: 'REMOVE_BLOCK', blockId: 'blk_a', index: 0 }, false, { dirty: false });
+    expect(state.getBlockIndexById('blk_new')).toBe(0);
+    expect(state.getBlockIndexById('blk_c')).toBe(2);
+
+    state.applyOp({ type: 'MOVE_BLOCK', blockId: 'blk_c', fromIndex: 2, toIndex: 0 }, false, { dirty: false });
+    expect(state.getBlockIndexById('blk_c')).toBe(0);
+    expect(state.getBlockById('blk_new')?.content).toBe('New');
+  });
+
+  it('rebuilds the index once for a batch of indexed structural operations', () => {
+    const rebuild = vi.spyOn(state, 'rebuildBlockIndex');
+    const transaction = new Transaction({
+      source: 'paste',
+      operations: [
+        { type: 'ADD_BLOCK', index: 1, block: { id: 'blk_1', type: 'text', content: '1' } },
+        { type: 'ADD_BLOCK', index: 2, block: { id: 'blk_2', type: 'text', content: '2' } },
+        { type: 'ADD_BLOCK', index: 3, block: { id: 'blk_3', type: 'text', content: '3' } }
+      ]
+    });
+
+    state.applyTransaction(transaction, false, { dirty: false });
+
+    expect(rebuild).toHaveBeenCalledTimes(1);
+    expect(state.getBlockIndexById('blk_3')).toBe(3);
+  });
+
+  it('refreshes indexes between structural operations inside one transaction', () => {
+    const transaction = new Transaction({
+      source: 'test',
+      operations: [
+        {
+          type: 'ADD_BLOCK',
+          index: 1,
+          blockId: 'blk_inserted',
+          block: { id: 'blk_inserted', type: 'text', style: 'normal', content: 'Inserted' }
+        },
+        {
+          type: 'REPLACE_BLOCK_STATE',
+          blockId: 'blk_inserted',
+          block: { id: 'blk_inserted', type: 'text', style: 'normal', content: 'Updated' }
+        }
+      ]
+    });
+
+    state.applyTransaction(transaction, false, { dirty: false });
+    expect(state.getBlockIndexById('blk_inserted')).toBe(1);
+    expect(state.getBlockById('blk_inserted')?.content).toBe('Updated');
+  });
+});
+
+describe('performance core: renderer registries and layout reads', () => {
+  it('reuses the DOM registry for rendered block lookup', () => {
+    document.body.innerHTML = `
+      <div id="workspace">
+        <div data-block-id="blk_a" data-index="0"></div>
+        <div data-block-id="blk_a" data-index="0" data-split-part="1"></div>
+        <div data-block-id="blk_b" data-index="1"></div>
+      </div>`;
+    const renderer = new Renderer('workspace', { doc: { settings: {}, blocks: [] } });
+    renderer.rebuildDomRegistry();
+
+    expect(renderer.getRenderedElementsByBlockId('blk_a')).toHaveLength(2);
+    expect(renderer.getRenderedElementsByIndex(1)).toHaveLength(1);
+  });
+
+  it('invalidates stale deferred pagination generations', () => {
+    document.body.innerHTML = '<div id="workspace"></div>';
+    const renderer = new Renderer('workspace', { doc: { settings: {}, blocks: [] } });
+    const first = renderer.beginPaginationGeneration();
+    expect(renderer.isPaginationCurrent(first)).toBe(true);
+
+    const second = renderer.beginPaginationGeneration();
+    expect(second).toBeGreaterThan(first);
+    expect(renderer.isPaginationCurrent(first)).toBe(false);
+    expect(renderer.isPaginationCurrent(second)).toBe(true);
+  });
+
+  it('checks the appended candidate without scanning every previous child', () => {
+    document.body.innerHTML = '<div id="workspace"><div id="area"><div id="old"></div><div id="candidate"></div></div></div>';
+    const renderer = new Renderer('workspace', { doc: { settings: {}, blocks: [] } });
+    const area = document.getElementById('area');
+    const old = document.getElementById('old');
+    const candidate = document.getElementById('candidate');
+
+    Object.defineProperty(area, 'clientHeight', { configurable: true, value: 100 });
+    Object.defineProperty(area, 'scrollHeight', { configurable: true, value: 100 });
+    area.getBoundingClientRect = vi.fn(() => ({ top: 0, bottom: 100, height: 100 }));
+    old.getBoundingClientRect = vi.fn(() => ({ top: 0, bottom: 60, height: 60 }));
+    candidate.getBoundingClientRect = vi.fn(() => ({ top: 60, bottom: 90, height: 30 }));
+
+    expect(renderer.checkOverflow(area, candidate)).toBe(false);
+    expect(candidate.getBoundingClientRect).toHaveBeenCalledTimes(1);
+    expect(old.getBoundingClientRect).not.toHaveBeenCalled();
+  });
+});
+
+describe('performance core: coordinated editor updates', () => {
+  it('updates document statistics using only dirty blocks', () => {
+    document.body.innerHTML = '<span id="word-count"></span><span id="char-count"></span>';
+    const blocks = [
+      { id: 'blk_a', type: 'text', style: 'normal', content: 'one two' },
+      { id: 'blk_b', type: 'text', style: 'normal', content: 'three' }
+    ];
+    const state = {
+      doc: { blocks },
+      getBlockById: id => blocks.find(block => block.id === id) || null
+    };
+    const controller = Object.assign(Object.create(EditorController.prototype), {
+      state,
+      _blockStatsCache: new Map(),
+      _documentStats: { words: 0, chars: 0 },
+      _statsScratchElement: null
+    });
+
+    controller.updateStats(blocks);
+    expect(document.getElementById('word-count').innerText).toBe('3 words');
+
+    blocks[0].content = 'one two four five';
+    expect(controller.updateStatsIncrementally(blocks, ['blk_a'])).toBe(true);
+    expect(document.getElementById('word-count').innerText).toBe('5 words');
+    expect(controller._blockStatsCache.get('blk_b')?.words).toBe(1);
+  });
+
+  it('deduplicates repeated selection notifications', () => {
+    const selection = {
+      type: 'text',
+      anchor: { blockId: 'blk_a', offset: 1 },
+      focus: { blockId: 'blk_a', offset: 1 },
+      marks: ['bold']
+    };
+    const signal = vi.fn();
+    const controller = Object.assign(Object.create(EditorController.prototype), {
+      engine: { captureSelection: vi.fn(() => selection) },
+      state: { getBlockIndexById: vi.fn(() => 0), signal },
+      toolbar: {
+        updateToolbarState: vi.fn(),
+        updateContextualToolbar: vi.fn(),
+        updateFloatingToolbar: vi.fn()
+      },
+      getActiveBlockContextFromSelection: vi.fn(() => ({ index: 0, blockId: 'blk_a', el: document.body })),
+      _selectionSignature: null,
+      activeBlockId: null,
+      activeBlockIndex: null,
+      lastFocusedBlockEl: null
+    });
+
+    controller.flushSelectionSync();
+    controller.flushSelectionSync();
+
+    expect(controller.engine.captureSelection).toHaveBeenCalledTimes(2);
+    expect(controller.toolbar.updateToolbarState).toHaveBeenCalledTimes(1);
+    expect(signal).toHaveBeenCalledTimes(1);
   });
 });
 

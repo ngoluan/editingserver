@@ -3580,13 +3580,14 @@ app.use(createProxyMiddleware({pathFilter:'/storage/**',target:apiTarget,changeO
 app.use(express.static(path.join(config.root,'dist'),{maxAge:'1h',index:'index.html'}));app.use((_req,res)=>res.sendFile(path.join(config.root,'dist','index.html')));
 const server=app.listen(webPort,()=>console.log(`CanvasForge web listening on ${webPort}`));const shutdown=()=>server.close(()=>process.exit(0));process.on('SIGINT',shutdown);process.on('SIGTERM',shutdown);
 
-// ===== /home/luanngo/canvasforge/server/worker.js (2026-07-16 03:20:05) =====
+// ===== /home/luanngo/canvasforge/server/worker.js (2026-07-16 03:43:03) =====
 import fs from 'node:fs';
 import path from 'node:path';
 import mime from 'mime-types';
 import { randomUUID } from 'node:crypto';
 import { chromium } from 'playwright-core';
 import { PDFDocument, rgb } from 'pdf-lib';
+import sharp from 'sharp';
 import { config } from './config.js';
 import { repositories, closeDb } from './db.js';
 import { exportPowerPoint } from './powerpoint.js';
@@ -3599,6 +3600,13 @@ const workerId=`worker-${randomUUID().slice(0,8)}`;
 let stopped=false;
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const timeout=(promise,ms)=>Promise.race([promise,new Promise((_,reject)=>setTimeout(()=>reject(new Error(`Export timed out after ${Math.round(ms/1000)} seconds.`)),ms))]);
+const exportFontHosts=new Set(['fonts.googleapis.com','fonts.gstatic.com']);
+
+function isAllowedExportRequest(rawUrl){
+  if(rawUrl.startsWith('data:')||rawUrl.startsWith('about:'))return true;
+  try{return exportFontHosts.has(new URL(rawUrl).hostname);}
+  catch{return false;}
+}
 
 function localAssetDataUrl(src){
   if(!src||src.startsWith('data:'))return src;
@@ -3660,7 +3668,13 @@ async function renderImposedPdf({context,document,job}){
     const renderer=await createRendererPage(context,document,pageIndex);
     const dataUrl=await renderer.evaluate(([m,q])=>globalThis.DesignCommonsRenderer.dataUrl('png',m,q),[multiplier,.96]);
     await renderer.close();
-    images.set(pageIndex,await pdf.embedPng(Buffer.from(dataUrl.split(',')[1],'base64')));
+    const sourcePng=Buffer.from(dataUrl.split(',')[1],'base64');
+    let artworkPng=sourcePng;
+    if(plan.config.trimWhitespace){
+      try{artworkPng=await sharp(sourcePng).trim({threshold:15}).png().toBuffer();}
+      catch(error){console.warn(`Could not trim whitespace from design page ${pageIndex+1}:`,error?.message||error);}
+    }
+    images.set(pageIndex,await pdf.embedPng(artworkPng));
     repositories.exports.progress(job.id,Math.round(5+index/Math.max(1,uniquePages.length)*35));
   }
   const sheetWidth=inchToPoint(plan.config.sheetWidthIn),sheetHeight=inchToPoint(plan.config.sheetHeightIn);
@@ -3694,7 +3708,7 @@ async function renderJob(job){
   if(document.width*multiplier>pixelLimit||document.height*multiplier>pixelLimit)throw new Error(`Export exceeds ${pixelLimit}px maximum dimension.`);
   const browser=await chromium.launch({executablePath:config.chromiumPath,headless:true,args:['--no-sandbox','--disable-dev-shm-usage','--disable-gpu','--disable-background-networking','--disable-extensions']});
   const context=await browser.newContext({serviceWorkers:'block'});
-  await context.route('**/*',route=>{const url=route.request().url();if(url.startsWith('data:')||url.startsWith('about:'))route.continue();else route.abort();});
+  await context.route('**/*',route=>isAllowedExportRequest(route.request().url())?route.continue():route.abort());
   try{
     const pageIndexes=job.options?.pageIndex===undefined?document.pages.map((_p,i)=>i):[Math.max(0,Math.min(document.pages.length-1,Number(job.options.pageIndex)))];
     if(job.format==='pdf'&&job.options?.imposition?.enabled){
@@ -11570,15 +11584,15 @@ export default function PrintPanel() {
   </div>;
 }
 
-// ===== /home/luanngo/canvasforge/src/components/PrintSheetDialog.jsx (2026-07-16 03:20:26) =====
-import React, { useMemo, useState } from 'react';
+// ===== /home/luanngo/canvasforge/src/components/PrintSheetDialog.jsx (2026-07-16 03:32:23) =====
+import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Printer } from 'lucide-react';
 import Modal from './Modal.jsx';
 import { useEditorStore } from '../store.js';
 import { pageToSvg } from '../lib/exportFormats.js';
 import { buildImpositionPlan, defaultImpositionConfig, documentSizeInches, PRODUCT_PRESETS, SHEET_PRESETS } from '../lib/printLayout.js';
 
-const STORAGE_KEY = 'design-commons-print-sheet-v2';
+const STORAGE_KEY = 'design-commons-print-sheet-v3';
 const Field = ({ label, children }) => <label className="field"><span>{label}</span>{children}</label>;
 const NumberField = ({ label, value, onChange, min = 0, max = 100, step = .01 }) => <Field label={label}><input type="number" min={min} max={max} step={step} value={value} onChange={event => onChange(Number(event.target.value))}/></Field>;
 
@@ -11588,10 +11602,44 @@ function loadInitial(document, pageIndex) {
   catch { return defaults; }
 }
 
+function trimPreview(source) {
+  if (!source || !globalThis.document) return Promise.resolve(source);
+  return new Promise(resolve => {
+    const image = new Image();
+    image.onload = () => {
+      const canvas = globalThis.document.createElement('canvas');
+      canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      context.drawImage(image, 0, 0);
+      const { width, height } = canvas;
+      const pixels = context.getImageData(0, 0, width, height).data;
+      const cornerIndexes = [0, (width - 1) * 4, (height - 1) * width * 4, (width * height - 1) * 4];
+      const background = [0, 1, 2, 3].map(channel => cornerIndexes.reduce((sum, index) => sum + pixels[index + channel], 0) / cornerIndexes.length);
+      let left = width, top = height, right = -1, bottom = -1;
+      for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+        const index = (y * width + x) * 4;
+        const difference = Math.abs(pixels[index] - background[0]) + Math.abs(pixels[index + 1] - background[1]) + Math.abs(pixels[index + 2] - background[2]) + Math.abs(pixels[index + 3] - background[3]);
+        if (difference > 60) { left = Math.min(left, x); top = Math.min(top, y); right = Math.max(right, x); bottom = Math.max(bottom, y); }
+      }
+      if (right < left || bottom < top || (right - left > width * .98 && bottom - top > height * .98)) return resolve(source);
+      const padding = 2;
+      left = Math.max(0, left - padding); top = Math.max(0, top - padding);
+      right = Math.min(width - 1, right + padding); bottom = Math.min(height - 1, bottom + padding);
+      const output = globalThis.document.createElement('canvas');
+      output.width = right - left + 1; output.height = bottom - top + 1;
+      output.getContext('2d').drawImage(canvas, left, top, output.width, output.height, 0, 0, output.width, output.height);
+      resolve(output.toDataURL('image/png'));
+    };
+    image.onerror = () => resolve(source);
+    image.src = source;
+  });
+}
+
 export default function PrintSheetDialog({ onClose, onExport, busy = false, currentPreview = '' }) {
   const document = useEditorStore(state => state.document);
   const pageIndex = useEditorStore(state => state.pageIndex);
   const [config, setConfig] = useState(() => loadInitial(document, pageIndex));
+  const [preview, setPreview] = useState(currentPreview);
   const plan = useMemo(() => buildImpositionPlan(document, config, pageIndex), [document, config, pageIndex]);
   const sourceSize = documentSizeInches(document);
   const sourceAspectRatio = sourceSize.widthIn / sourceSize.heightIn;
@@ -11599,7 +11647,13 @@ export default function PrintSheetDialog({ onClose, onExport, busy = false, curr
   const patchMargins = values => setConfig(current => ({ ...current, margins: { ...current.margins, ...values } }));
   const patchMarks = values => setConfig(current => ({ ...current, marks: { ...current.marks, ...values } }));
   const patchDuplex = values => setConfig(current => ({ ...current, duplex: { ...current.duplex, ...values } }));
-  const pageSvgs = useMemo(() => (document.pages || []).map((_page, index) => index === pageIndex && currentPreview ? `url("${currentPreview}")` : `url("data:image/svg+xml;charset=utf-8,${encodeURIComponent(pageToSvg(document, index))}")`), [document, pageIndex, currentPreview]);
+  useEffect(() => {
+    let active = true;
+    if (!config.trimWhitespace) setPreview(currentPreview);
+    else trimPreview(currentPreview).then(result => { if (active) setPreview(result); });
+    return () => { active = false; };
+  }, [currentPreview, config.trimWhitespace]);
+  const pageSvgs = useMemo(() => (document.pages || []).map((_page, index) => index === pageIndex && preview ? `url("${preview}")` : `url("data:image/svg+xml;charset=utf-8,${encodeURIComponent(pageToSvg(document, index))}")`), [document, pageIndex, preview]);
   const shownSides = plan.sides.slice(0, 2);
 
   const selectSheet = presetId => {
@@ -11632,18 +11686,22 @@ export default function PrintSheetDialog({ onClose, onExport, busy = false, curr
         <h3>Content</h3>
         <Field label="Designs to place"><select value={config.contentMode} disabled={config.duplex?.enabled} onChange={event => patch({ contentMode: event.target.value })}><option value="repeat-current">Repeat current page</option><option value="selected-pages">Selected pages</option><option value="all-pages">All design pages</option></select></Field>
         {config.contentMode === 'selected-pages' && !config.duplex?.enabled && <div className="print-sheet-page-list">{document.pages.map((page, index) => <label key={page.id || index}><input type="checkbox" checked={(config.pageIndexes || []).includes(index)} onChange={() => togglePage(index)}/><span>{page.name || `Page ${index + 1}`}</span></label>)}</div>}
-        <NumberField label="Quantity" min={1} max={10000} step={1} value={config.quantity} onChange={quantity => patch({ quantity })}/>
+        <label className="check"><input type="checkbox" checked={config.quantityMode !== 'exact'} onChange={event => patch({ quantityMode: event.target.checked ? 'fill-sheet' : 'exact' })}/>Fill every available slot automatically</label>
+        {config.quantityMode !== 'exact'
+          ? <NumberField label="Number of sheets" min={1} max={1000} step={1} value={config.sheetCount || 1} onChange={sheetCount => patch({ sheetCount })}/>
+          : <NumberField label="Quantity" min={1} max={10000} step={1} value={config.quantity} onChange={quantity => patch({ quantity })}/>}
 
         <h3>Item</h3>
         <Field label="Product size"><select value={config.itemPreset} onChange={event => selectProduct(event.target.value)}>{PRODUCT_PRESETS.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></Field>
         <div className="field-grid"><NumberField label="Width (in)" min={.05} max={100} value={config.itemWidthIn} onChange={setItemWidth}/><NumberField label="Height (in)" min={.05} max={100} value={config.itemHeightIn} onChange={setItemHeight}/></div>
         <label className="check print-sheet-aspect-lock"><input type="checkbox" checked={config.preserveAspectRatio !== false} onChange={event => setPreserveAspectRatio(event.target.checked)}/>Preserve design aspect ratio</label>
+        <label className="check"><input type="checkbox" checked={config.trimWhitespace !== false} onChange={event => patch({ trimWhitespace: event.target.checked })}/>Trim empty canvas space</label>
         <small className="print-sheet-source-size">Design canvas: {sourceSize.widthIn.toFixed(3)} × {sourceSize.heightIn.toFixed(3)} in · {sourceAspectRatio.toFixed(3)}:1 · {sourceSize.dpi} DPI</small>
 
         <h3>Sheet</h3>
         <div className="field-grid"><Field label="Paper"><select value={config.sheetPreset} onChange={event => selectSheet(event.target.value)}>{SHEET_PRESETS.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></Field><Field label="Orientation"><select value={config.orientation} onChange={event => patch({ orientation: event.target.value })}><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></Field></div>
         {config.sheetPreset === 'custom' && <div className="field-grid"><NumberField label="Sheet width (in)" min={.5} value={config.sheetWidthIn} onChange={sheetWidthIn => patch({ sheetWidthIn })}/><NumberField label="Sheet height (in)" min={.5} value={config.sheetHeightIn} onChange={sheetHeightIn => patch({ sheetHeightIn })}/></div>}
-        <div className="print-sheet-spacing-heading"><span>Margins and gaps (in)</span><button type="button" className="mini" onClick={() => patch({ margins: { topIn: .15, rightIn: .15, bottomIn: .15, leftIn: .15 }, horizontalGapIn: .04, verticalGapIn: .04, alignment: 'start' })}>Tight spacing</button></div>
+        <div className="print-sheet-spacing-heading"><span>Margins and gaps (in)</span><button type="button" className="mini" onClick={() => patch({ margins: { topIn: 0, rightIn: 0, bottomIn: 0, leftIn: 0 }, horizontalGapIn: 0, verticalGapIn: 0, layoutMode: 'auto', alignment: 'start', marks: { crop: false, outlines: true } })}>Minimum spacing</button></div>
         <div className="print-sheet-insets"><NumberField label="Top" value={config.margins?.topIn} onChange={topIn => patchMargins({ topIn })}/><NumberField label="Right" value={config.margins?.rightIn} onChange={rightIn => patchMargins({ rightIn })}/><NumberField label="Bottom" value={config.margins?.bottomIn} onChange={bottomIn => patchMargins({ bottomIn })}/><NumberField label="Left" value={config.margins?.leftIn} onChange={leftIn => patchMargins({ leftIn })}/></div>
         <div className="field-grid"><NumberField label="Horizontal gap (in)" value={config.horizontalGapIn} onChange={horizontalGapIn => patch({ horizontalGapIn })}/><NumberField label="Vertical gap (in)" value={config.verticalGapIn} onChange={verticalGapIn => patch({ verticalGapIn })}/></div>
         <div className="field-grid"><Field label="Layout"><select value={config.layoutMode} onChange={event => patch({ layoutMode: event.target.value })}><option value="auto">Fit automatically</option><option value="manual">Set rows and columns</option></select></Field><Field label="Alignment"><select value={config.alignment} onChange={event => patch({ alignment: event.target.value })}><option value="start">Top / left</option><option value="center">Centre</option><option value="end">Bottom / right</option></select></Field></div>
@@ -12400,7 +12458,7 @@ export function SkeletonCard() {
   return <div className="design-card skeleton-card" aria-hidden="true"><div className="skeleton skeleton-thumb"/><div className="skeleton skeleton-line wide"/><div className="skeleton skeleton-line"/></div>;
 }
 
-// ===== /home/luanngo/canvasforge/src/export-renderer-entry.js (2026-07-05 19:48:44) =====
+// ===== /home/luanngo/canvasforge/src/export-renderer-entry.js (2026-07-16 03:43:06) =====
 import { StaticCanvas } from 'fabric';
 import { elementToObject, paintToFabric } from './lib/fabricAdapter.js';
 import { ensureFontsLoaded } from './lib/fonts.js';
@@ -12412,7 +12470,12 @@ let lastPrintSpec = null;
 export async function render(document, pageIndex = 0) {
   const page = document.pages[pageIndex];
   if (!page) throw new Error(`Page ${pageIndex} not found.`);
-  await ensureFontsLoaded((page.elements || []).flatMap(item => item.type === 'text' ? [item.fontFamily] : ['chart', 'table'].includes(item.type) ? [item.options?.fontFamily] : []).filter(Boolean));
+  const requestedFonts = (page.elements || []).flatMap(item => item.type === 'text' ? [item.fontFamily] : ['chart', 'table'].includes(item.type) ? [item.options?.fontFamily] : []).filter(Boolean);
+  const fontResult = await ensureFontsLoaded(requestedFonts, { timeoutMs: 15000 });
+  if (fontResult.failed.length) {
+    const details = fontResult.failed.map(item => `${item.fontFamily}: ${item.error || 'unavailable'}`).join('; ');
+    throw new Error(`Export stopped because the design fonts could not be loaded. ${details}`);
+  }
   const element = globalThis.document.getElementById('export-canvas');
   if (!element) throw new Error('Export canvas element is missing.');
   canvas?.dispose?.();
@@ -15666,7 +15729,7 @@ export function mergeAppearancePreset(currentInput, presetInput, options = {}) {
 
 export const PRESET_PACK_VERSION = 1;
 
-// ===== /home/luanngo/canvasforge/src/lib/printLayout.js (2026-07-16 03:20:51) =====
+// ===== /home/luanngo/canvasforge/src/lib/printLayout.js (2026-07-16 03:32:55) =====
 const clamp = (value, min, max) => Math.max(min, Math.min(max, Number(value)));
 const finite = (value, fallback) => value !== null && value !== '' && Number.isFinite(Number(value)) ? Number(value) : fallback;
 const round = value => Math.round(value * 10000) / 10000;
@@ -15711,19 +15774,22 @@ export function defaultImpositionConfig(document = {}, pageIndex = 0) {
     itemWidthIn: round(source.widthIn),
     itemHeightIn: round(source.heightIn),
     preserveAspectRatio: true,
-    margins: { topIn: .2, rightIn: .2, bottomIn: .2, leftIn: .2 },
-    horizontalGapIn: .06,
-    verticalGapIn: .06,
+    margins: { topIn: 0, rightIn: 0, bottomIn: 0, leftIn: 0 },
+    horizontalGapIn: 0,
+    verticalGapIn: 0,
     layoutMode: 'auto',
     rows: 1,
     columns: 1,
     alignment: 'start',
     fillOrder: 'row',
     quantity: 10,
+    quantityMode: 'fill-sheet',
+    sheetCount: 1,
+    trimWhitespace: true,
     contentMode: 'repeat-current',
     pageIndexes: [Math.max(0, Number(pageIndex) || 0)],
     outputDpi: 300,
-    marks: { crop: true, outlines: false },
+    marks: { crop: false, outlines: true },
     duplex: { enabled: false, frontPageIndex: Math.max(0, Number(pageIndex) || 0), backPageIndex: Math.min(Math.max(0, (document.pages?.length || 1) - 1), Math.max(0, Number(pageIndex) + 1 || 0)), flip: 'long-edge' }
   };
 }
@@ -15748,10 +15814,10 @@ export function normalizeImpositionConfig(input = {}, document = {}, pageIndex =
   const itemHeightIn = preserveAspectRatio ? itemWidthIn / sourceAspectRatio : unlockedHeight;
   const marginSource = source.margins || {};
   const margins = {
-    topIn: clamp(finite(marginSource.topIn, .2), 0, sheetHeightIn / 2),
-    rightIn: clamp(finite(marginSource.rightIn, .2), 0, sheetWidthIn / 2),
-    bottomIn: clamp(finite(marginSource.bottomIn, .2), 0, sheetHeightIn / 2),
-    leftIn: clamp(finite(marginSource.leftIn, .2), 0, sheetWidthIn / 2)
+    topIn: clamp(finite(marginSource.topIn, 0), 0, sheetHeightIn / 2),
+    rightIn: clamp(finite(marginSource.rightIn, 0), 0, sheetWidthIn / 2),
+    bottomIn: clamp(finite(marginSource.bottomIn, 0), 0, sheetHeightIn / 2),
+    leftIn: clamp(finite(marginSource.leftIn, 0), 0, sheetWidthIn / 2)
   };
   const pageCount = Math.max(1, document.pages?.length || 1);
   const safePage = value => clamp(Math.round(finite(value, 0)), 0, pageCount - 1);
@@ -15765,18 +15831,21 @@ export function normalizeImpositionConfig(input = {}, document = {}, pageIndex =
     itemWidthIn: round(itemWidthIn), itemHeightIn: round(itemHeightIn),
     preserveAspectRatio,
     margins,
-    horizontalGapIn: clamp(finite(source.horizontalGapIn, .06), 0, sheetWidthIn),
-    verticalGapIn: clamp(finite(source.verticalGapIn, .06), 0, sheetHeightIn),
+    horizontalGapIn: clamp(finite(source.horizontalGapIn, 0), 0, sheetWidthIn),
+    verticalGapIn: clamp(finite(source.verticalGapIn, 0), 0, sheetHeightIn),
     layoutMode: source.layoutMode === 'manual' ? 'manual' : 'auto',
     rows: clamp(Math.round(finite(source.rows, 1)), 1, 100),
     columns: clamp(Math.round(finite(source.columns, 1)), 1, 100),
     alignment: ['start', 'center', 'end'].includes(source.alignment) ? source.alignment : 'start',
     fillOrder: source.fillOrder === 'column' ? 'column' : 'row',
     quantity: clamp(Math.round(finite(source.quantity, 1)), 1, 10000),
+    quantityMode: source.quantityMode === 'exact' ? 'exact' : 'fill-sheet',
+    sheetCount: clamp(Math.round(finite(source.sheetCount, 1)), 1, 1000),
+    trimWhitespace: source.trimWhitespace !== false,
     contentMode: ['repeat-current', 'selected-pages', 'all-pages'].includes(source.contentMode) ? source.contentMode : 'repeat-current',
     pageIndexes: pageIndexes.length ? pageIndexes : [safePage(pageIndex)],
     outputDpi: clamp(Math.round(finite(source.outputDpi, 300)), 72, 600),
-    marks: { crop: source.marks?.crop !== false, outlines: !!source.marks?.outlines },
+    marks: { crop: !!source.marks?.crop, outlines: source.marks?.outlines !== false },
     duplex: {
       enabled: !!source.duplex?.enabled,
       frontPageIndex: safePage(source.duplex?.frontPageIndex ?? pageIndex),
@@ -15811,7 +15880,8 @@ export function buildImpositionPlan(document = {}, input = {}, pageIndex = 0) {
   const selectedPages = config.contentMode === 'all-pages'
     ? Array.from({ length: Math.max(1, document.pages?.length || 1) }, (_, index) => index)
     : config.contentMode === 'selected-pages' ? config.pageIndexes : [config.pageIndexes[0] ?? Math.max(0, Number(pageIndex) || 0)];
-  const quantity = config.duplex.enabled ? config.quantity : config.contentMode === 'repeat-current' ? config.quantity : Math.max(config.quantity, selectedPages.length);
+  const requestedQuantity = config.duplex.enabled ? config.quantity : config.contentMode === 'repeat-current' ? config.quantity : Math.max(config.quantity, selectedPages.length);
+  const quantity = config.quantityMode === 'fill-sheet' && perSheet ? perSheet * config.sheetCount : requestedQuantity;
   const physicalSheets = perSheet ? Math.ceil(quantity / perSheet) : 0;
   const sides = [];
   const placementAt = (index, sourcePageIndex, back = false) => {
@@ -19771,7 +19841,7 @@ test('PowerPoint round-trip preserves slide size and editable core elements', as
   assert.ok(imported.document.pages[0].elements.some(element => element.type === 'chart'));
 });
 
-// ===== /home/luanngo/canvasforge/tests/print-layout.test.js (2026-07-16 03:21:33) =====
+// ===== /home/luanngo/canvasforge/tests/print-layout.test.js (2026-07-16 03:33:10) =====
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildImpositionPlan, documentSizeInches } from '../src/lib/printLayout.js';
@@ -19800,7 +19870,7 @@ test('lays ten business cards on a Letter sheet without gaps', () => {
 
 test('continues quantities across physical sheets', () => {
   const plan = buildImpositionPlan(document, {
-    itemPreset: 'business-card', quantity: 23,
+    itemPreset: 'business-card', quantityMode: 'exact', quantity: 23,
     margins: { topIn: .5, rightIn: .5, bottomIn: .5, leftIn: .5 },
     horizontalGapIn: 0, verticalGapIn: 0
   });
@@ -19808,9 +19878,24 @@ test('continues quantities across physical sheets', () => {
   assert.equal(plan.sides.at(-1).placements.length, 3);
 });
 
+test('fills every available slot on the requested number of sheets automatically', () => {
+  const plan = buildImpositionPlan(document, { itemPreset: 'business-card', sheetCount: 2 });
+  assert.equal(plan.perSheet, 10);
+  assert.equal(plan.physicalSheets, 2);
+  assert.equal(plan.sides.flatMap(side => side.placements).length, 20);
+});
+
+test('uses minimum spacing and trims empty canvas by default', () => {
+  const plan = buildImpositionPlan(document);
+  assert.deepEqual(plan.config.margins, { topIn: 0, rightIn: 0, bottomIn: 0, leftIn: 0 });
+  assert.equal(plan.config.horizontalGapIn, 0);
+  assert.equal(plan.config.verticalGapIn, 0);
+  assert.equal(plan.config.trimWhitespace, true);
+});
+
 test('duplex output mirrors backs for a long-edge flip', () => {
   const plan = buildImpositionPlan(document, {
-    itemPreset: 'business-card', quantity: 2,
+    itemPreset: 'business-card', quantityMode: 'exact', quantity: 2,
     margins: { topIn: .5, rightIn: .5, bottomIn: .5, leftIn: .5 },
     horizontalGapIn: 0, verticalGapIn: 0,
     duplex: { enabled: true, frontPageIndex: 0, backPageIndex: 1, flip: 'long-edge' }

@@ -29,8 +29,8 @@
       "combineScript": "/home/luanngo/server/canvas_combine-source.sh",
       "combinedOutput": "/home/luanngo/server/canvas_combined-source.txt",
       "patchDir": "/home/luanngo/server/patches",
-      "opencodeSessionId": "ses_096fae7c7ffe6NDQdsmRdWfphW",
-      "opencodeSessionStartedAt": "2026-07-16T03:42:49.415Z",
+      "opencodeSessionId": "ses_08ce75385ffeUdxejOKmQPUy3R",
+      "opencodeSessionStartedAt": "2026-07-18T02:40:24.750Z",
       "opencodeJobType": "patch",
       "buildCommand": "npm run build",
       "restartCommand": "pm2 restart canvasforge"
@@ -42,9 +42,11 @@
       "combineScript": "/home/luanngo/server/opendoc_combine-source.sh",
       "combinedOutput": "/home/luanngo/server/opendoc_combined-source.txt",
       "patchDir": "/home/luanngo/server/patches",
-      "opencodeSessionId": "ses_09cb19949ffeJUamPwD81fEaQQ",
-      "opencodeSessionStartedAt": "2026-07-15T01:05:10.343Z",
-      "opencodeJobType": "patch"
+      "opencodeSessionId": "ses_08cc9cf6affe1seFRHFSzBgap0",
+      "opencodeSessionStartedAt": "2026-07-18T03:12:39.077Z",
+      "opencodeJobType": "patch",
+      "buildCommand": "npm run build",
+      "restartCommand": "pm2 restart 6"
     },
     {
       "id": "boss",
@@ -69,6 +71,16 @@
       "opencodeSessionId": "ses_0a12bf110ffeuMoPIlJNX1wTq3",
       "opencodeSessionStartedAt": "2026-07-14T04:13:03.611Z",
       "opencodeJobType": "patch"
+    },
+    {
+      "id": "editing_server",
+      "name": "editing server",
+      "path": "/home/luanngo/server",
+      "combineScript": "/home/luanngo/server/editing_server_combine-source.sh",
+      "combinedOutput": "/home/luanngo/server/editing_server_combined-source.txt",
+      "patchDir": "/home/luanngo/server/patches",
+      "buildCommand": "",
+      "restartCommand": ""
     }
   ]
 }

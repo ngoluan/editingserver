@@ -1,5 +1,40 @@
 [
   {
+    "timestamp": "2026-07-18T03:20:57.985Z",
+    "action": "commit",
+    "message": "Debounce selection paint and disable debug flags",
+    "success": true
+  },
+  {
+    "timestamp": "2026-07-18T03:20:33.820Z",
+    "action": "combine",
+    "lines": 30462,
+    "size": 1380129,
+    "exitCode": 0
+  },
+  {
+    "timestamp": "2026-07-18T03:19:59.194Z",
+    "action": "rebuild_restart",
+    "success": true,
+    "stage": "complete",
+    "exitCode": 0,
+    "durationMs": 844
+  },
+  {
+    "timestamp": "2026-07-18T03:12:39.077Z",
+    "action": "apply_opencode",
+    "success": true,
+    "sessionId": "ses_08cc9cf6affe1seFRHFSzBgap0",
+    "jobType": "patch"
+  },
+  {
+    "timestamp": "2026-07-18T02:31:35.975Z",
+    "action": "combine",
+    "lines": 29904,
+    "size": 1357568,
+    "exitCode": 0
+  },
+  {
     "timestamp": "2026-07-15T18:58:50.408Z",
     "action": "commit",
     "message": "Add docx and mammoth dependencies, update index metadata",

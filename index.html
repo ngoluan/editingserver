@@ -397,7 +397,8 @@ pre.output {
 
 <div class="modal-overlay" id="deploy-modal">
   <div class="modal" style="width:700px">
-    <h2>Rebuild &amp; Restart <span id="deploy-project-name" style="color:var(--text2);font-weight:400"></span></h2>
+    <h2>Deploy workflow <span id="deploy-project-name" style="color:var(--text2);font-weight:400"></span></h2>
+    <div class="form-hint" style="margin:-4px 0 16px">1. Combine source → 2. Apply saved patch → 3. Build &amp; restart → 4. Commit &amp; push Git. The workflow stops at the first failed stage.</div>
     <div class="form-group">
       <label>Build command</label>
       <input type="text" id="deploy-build-command" placeholder="npm run build" />
@@ -407,12 +408,27 @@ pre.output {
       <input type="text" id="deploy-restart-command" placeholder="pm2 restart canvasforge" />
       <div class="form-hint">The restart runs only if the build succeeds. Both commands run from the project's folder.</div>
     </div>
+    <div class="form-group" style="margin-top:20px">
+      <label>Manual code edit <span style="color:var(--text2);font-weight:400">(optional)</span></label>
+      <div class="form-row">
+        <input type="text" id="deploy-file-path" placeholder="src/app.js" style="flex:1" />
+        <button class="btn" id="deploy-load-file-btn" onclick="loadDeployFile()">Load file</button>
+      </div>
+      <textarea id="deploy-file-content" placeholder="Load a project file to edit it before deploying." style="display:none;min-height:220px;margin-top:8px"></textarea>
+      <div class="form-hint" id="deploy-file-hint">Use a path relative to the project folder. Saving changes updates the file immediately.</div>
+    </div>
+    <div class="form-group">
+      <label>Git commit message</label>
+      <input type="text" id="deploy-commit-message" value="deploy update" placeholder="deploy update" />
+      <div class="form-hint">After a successful build, changed code is committed and pushed. A clean repository skips this step.</div>
+    </div>
     <div id="deploy-status" class="status-line"></div>
     <pre class="output" id="deploy-output" style="display:none;max-height:300px"></pre>
     <div class="modal-actions">
       <button class="btn" id="deploy-close-btn" onclick="closeDeployModal()">Close</button>
       <button class="btn" id="deploy-save-btn" onclick="saveDeployConfig()">Save commands</button>
-      <button class="btn btn-green" id="deploy-run-btn" onclick="runRebuildRestart()">▶ Rebuild &amp; Restart</button>
+      <button class="btn btn-primary" id="deploy-save-file-btn" onclick="saveDeployFile()" style="display:none">Save code</button>
+      <button class="btn btn-green" id="deploy-run-btn" onclick="runDeployWorkflow()">▶ Run deploy workflow</button>
     </div>
   </div>
 </div>
@@ -1342,6 +1358,12 @@ function openDeployModal(id) {
   document.getElementById('deploy-project-name').textContent = `· ${p.name}`;
   document.getElementById('deploy-build-command').value = p.buildCommand || '';
   document.getElementById('deploy-restart-command').value = p.restartCommand || '';
+  document.getElementById('deploy-file-path').value = '';
+  document.getElementById('deploy-file-content').value = '';
+  document.getElementById('deploy-file-content').style.display = 'none';
+  document.getElementById('deploy-save-file-btn').style.display = 'none';
+  document.getElementById('deploy-file-hint').textContent = 'Use a path relative to the project folder. Saving changes updates the file immediately.';
+  document.getElementById('deploy-commit-message').value = 'deploy update';
   document.getElementById('deploy-status').textContent = '';
   const output = document.getElementById('deploy-output');
   output.textContent = '';
@@ -1359,9 +1381,53 @@ function setDeployControls(disabled) {
   deployRunning = disabled;
   document.getElementById('deploy-build-command').disabled = disabled;
   document.getElementById('deploy-restart-command').disabled = disabled;
+  document.getElementById('deploy-file-path').disabled = disabled;
+  document.getElementById('deploy-file-content').disabled = disabled;
+  document.getElementById('deploy-commit-message').disabled = disabled;
+  document.getElementById('deploy-load-file-btn').disabled = disabled;
+  document.getElementById('deploy-save-file-btn').disabled = disabled;
   document.getElementById('deploy-save-btn').disabled = disabled;
   document.getElementById('deploy-run-btn').disabled = disabled;
   document.getElementById('deploy-close-btn').disabled = disabled;
+}
+
+async function loadDeployFile() {
+  if (!deployProjectId || deployRunning) return;
+  const file = document.getElementById('deploy-file-path').value.trim();
+  const status = document.getElementById('deploy-status');
+  if (!file) {
+    status.innerHTML = '<span class="badge badge-red">Required</span> Enter a file path first.';
+    return;
+  }
+  status.innerHTML = '<span class="spinner"></span> Loading file...';
+  const data = await api('GET', `/api/projects/${deployProjectId}/file?file=${encodeURIComponent(file)}`);
+  if (data.error) {
+    status.innerHTML = `<span class="badge badge-red">Error</span> ${escapeHtml(data.error)}`;
+    return;
+  }
+  document.getElementById('deploy-file-path').value = data.file;
+  document.getElementById('deploy-file-content').value = data.content;
+  document.getElementById('deploy-file-content').style.display = 'block';
+  document.getElementById('deploy-save-file-btn').style.display = 'inline-block';
+  document.getElementById('deploy-file-hint').textContent = `${data.file} · ${Math.ceil(data.size / 1024)} KB`;
+  status.innerHTML = '<span class="badge badge-green">Loaded</span> Edit the code, then save or deploy.';
+}
+
+async function saveDeployFile(showStatus = true) {
+  if (!deployProjectId) return false;
+  const file = document.getElementById('deploy-file-path').value.trim();
+  const content = document.getElementById('deploy-file-content').value;
+  const status = document.getElementById('deploy-status');
+  if (!file || document.getElementById('deploy-file-content').style.display === 'none') return true;
+  if (showStatus) status.innerHTML = '<span class="spinner"></span> Saving code...';
+  const data = await api('POST', `/api/projects/${deployProjectId}/file`, { file, content });
+  if (data.error) {
+    status.innerHTML = `<span class="badge badge-red">Error</span> ${escapeHtml(data.error)}`;
+    return false;
+  }
+  document.getElementById('deploy-file-hint').textContent = `${data.file} saved · ${Math.ceil(data.size / 1024)} KB`;
+  if (showStatus) status.innerHTML = '<span class="badge badge-green">Saved</span> Code updated on disk.';
+  return true;
 }
 
 async function saveDeployConfig(showStatus = true) {
@@ -1390,33 +1456,42 @@ function formatCommandResult(label, result) {
   return lines.join('\n');
 }
 
-async function runRebuildRestart() {
+function formatDeploySteps(steps) {
+  const labels = {
+    combine: '1. Combine', patch: '2. Patch', build: '3. Build', restart: '3. Restart',
+    gitAdd: '4. Git add', gitCommit: '4. Git commit', gitPush: '4. Git push', git: '4. Git',
+  };
+  return Object.entries(steps || {}).map(([key, result]) => {
+    if (result.skipped) return `${labels[key] || key}: skipped\n${result.stdout || ''}`;
+    return formatCommandResult(labels[key] || key, result);
+  }).filter(Boolean).join('\n\n' + '─'.repeat(60) + '\n\n');
+}
+
+async function runDeployWorkflow() {
   if (!deployProjectId || deployRunning) return;
   const buildCommand = document.getElementById('deploy-build-command').value.trim();
   const restartCommand = document.getElementById('deploy-restart-command').value.trim();
+  const commitMessage = document.getElementById('deploy-commit-message').value.trim() || 'deploy update';
   const status = document.getElementById('deploy-status');
   const output = document.getElementById('deploy-output');
   if (!buildCommand || !restartCommand) {
     status.innerHTML = '<span class="badge badge-red">Required</span> Enter both commands.';
     return;
   }
+  if (!await saveDeployFile(false)) return;
   if (!await saveDeployConfig(false)) return;
 
   setDeployControls(true);
-  status.innerHTML = '<span class="spinner"></span> Building; restart will follow only if it succeeds...';
+  status.innerHTML = '<span class="spinner"></span> Combining source...';
   output.style.display = 'block';
-  output.textContent = `$ ${buildCommand}\n\nRunning...`;
+  output.textContent = '1. Combine source\n\nRunning...';
   try {
-    const data = await api('POST', `/api/projects/${deployProjectId}/rebuild-restart`);
-    const sections = [formatCommandResult(buildCommand, data.build)];
-    if (data.restart) sections.push(formatCommandResult(restartCommand, data.restart));
-    if (data.error) sections.push(data.error);
-    output.textContent = sections.filter(Boolean).join('\n\n' + '─'.repeat(60) + '\n\n');
+    const data = await api('POST', `/api/projects/${deployProjectId}/deploy`, { commitMessage });
+    output.textContent = formatDeploySteps(data.steps) || data.error || 'No workflow output received.';
     if (data.success) {
-      status.innerHTML = `<span class="badge badge-green">Online</span> Build completed and restart succeeded in ${Math.max(1, Math.round((data.durationMs || 0) / 1000))}s.`;
+      status.innerHTML = `<span class="badge badge-green">Deployed</span> Combine, patch, build, and Git completed in ${Math.max(1, Math.round((data.durationMs || 0) / 1000))}s.`;
     } else {
-      const failedStage = data.stage === 'restart' ? 'Restart' : 'Build';
-      status.innerHTML = `<span class="badge badge-red">${failedStage} failed</span> Review the output below.`;
+      status.innerHTML = `<span class="badge badge-red">${escapeHtml(data.stage || 'Deploy')} failed</span> Review the output below.`;
     }
     refreshActivityLog();
   } catch (error) {

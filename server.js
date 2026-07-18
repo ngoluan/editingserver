@@ -91,6 +91,29 @@ function cleanCommand(value) {
   return value.trim().slice(0, 4000);
 }
 
+function resolveProjectFile(projectPath, requestedFile) {
+  if (typeof requestedFile !== 'string' || !requestedFile.trim()) {
+    throw new Error('File path required');
+  }
+  const relativeFile = requestedFile.trim().replace(/\\/g, '/');
+  if (path.isAbsolute(relativeFile) || relativeFile.split('/').includes('..') || relativeFile.split('/').includes('.git')) {
+    throw new Error('File must be inside the project and outside .git');
+  }
+
+  const root = fs.realpathSync(projectPath);
+  const candidate = path.resolve(root, relativeFile);
+  if (candidate !== root && !candidate.startsWith(root + path.sep)) {
+    throw new Error('File must be inside the project');
+  }
+  if (!fs.existsSync(candidate)) throw new Error('File not found');
+
+  const filePath = fs.realpathSync(candidate);
+  if (!filePath.startsWith(root + path.sep) || !fs.statSync(filePath).isFile()) {
+    throw new Error('File must be a regular file inside the project');
+  }
+  return { filePath, relativeFile };
+}
+
 function opencodeApi(method, endpoint, body) {
   return new Promise((resolve, reject) => {
     const url = new URL(endpoint, OPENCODE_SERVER_URL);
@@ -596,6 +619,33 @@ async function handleApi(method, url, req, res) {
     });
   }
 
+  // GET/POST /api/projects/:id/file — read or manually update a project source file before deploy
+  if ((method === 'GET' || method === 'POST') && action === 'file') {
+    try {
+      const body = method === 'POST' ? await parseBody(req) : null;
+      const url = method === 'GET' ? new URL(req.url, 'http://localhost') : null;
+      const requestedFile = method === 'POST' ? body.file : url.searchParams.get('file');
+      const { filePath, relativeFile } = resolveProjectFile(project.path, requestedFile);
+      const stat = fs.statSync(filePath);
+      if (stat.size > 2 * 1024 * 1024) return json(res, 413, { error: 'Files larger than 2 MB cannot be edited here.' });
+
+      if (method === 'GET') {
+        const content = fs.readFileSync(filePath, 'utf8');
+        if (content.includes('\0')) return json(res, 415, { error: 'Binary files cannot be edited here.' });
+        return json(res, 200, { file: relativeFile, content, size: stat.size });
+      }
+
+      if (typeof body.content !== 'string') return json(res, 400, { error: 'File content required' });
+      if (Buffer.byteLength(body.content, 'utf8') > 2 * 1024 * 1024) return json(res, 413, { error: 'Edited files must be 2 MB or smaller.' });
+      if (body.content.includes('\0')) return json(res, 415, { error: 'Binary file content is not supported.' });
+      fs.writeFileSync(filePath, body.content, 'utf8');
+      logSession(projectId, { action: 'manual_file_edit', file: relativeFile, size: Buffer.byteLength(body.content, 'utf8') });
+      return json(res, 200, { success: true, file: relativeFile, size: Buffer.byteLength(body.content, 'utf8') });
+    } catch (e) {
+      return json(res, 400, { error: e.message });
+    }
+  }
+
   // POST /api/projects/:id/rebuild-restart — build, then restart only after a successful build
   if (method === 'POST' && action === 'rebuild-restart') {
     const buildCommand = cleanCommand(project.buildCommand);
@@ -629,6 +679,73 @@ async function handleApi(method, url, req, res) {
     } catch (e) {
       logSession(projectId, { action: 'rebuild_restart', success: false, stage: 'server', error: e.message, durationMs: Date.now() - startedAt });
       return json(res, 500, { success: false, stage: 'server', error: e.message });
+    } finally {
+      activeDeployments.delete(projectId);
+    }
+  }
+
+  // POST /api/projects/:id/deploy — Combine → patch → build/restart → Git commit/push
+  if (method === 'POST' && action === 'deploy') {
+    const body = await parseBody(req);
+    const buildCommand = cleanCommand(project.buildCommand);
+    const restartCommand = cleanCommand(project.restartCommand);
+    const commitMessage = cleanCommand(body.commitMessage) || 'deploy update';
+    const patchPath = path.join(project.patchDir || DIR, `${project.id}_patch.txt`);
+    if (!project.combineScript || !fs.existsSync(project.combineScript)) {
+      return json(res, 400, { error: 'Configure a valid combine script first.' });
+    }
+    if (!buildCommand || !restartCommand) {
+      return json(res, 400, { error: 'Configure both the build and restart commands first.' });
+    }
+    if (!fs.existsSync(path.join(project.path, '.git'))) {
+      return json(res, 400, { error: 'This workflow requires the project to be a git repository.' });
+    }
+    if (activeDeployments.has(projectId)) {
+      return json(res, 409, { error: 'A deployment is already running for this project.' });
+    }
+
+    activeDeployments.add(projectId);
+    const startedAt = Date.now();
+    const steps = {};
+    const fail = (stage, result, status = 500) => {
+      logSession(projectId, { action: 'deploy', success: false, stage, exitCode: result?.code, durationMs: Date.now() - startedAt });
+      return json(res, status, { success: false, stage, steps, durationMs: Date.now() - startedAt });
+    };
+    try {
+      steps.combine = await run(`bash "${project.combineScript}" "${project.path}" "${DIR}"`, DIR, 10 * 60 * 1000);
+      if (steps.combine.code !== 0) return fail('combine', steps.combine);
+
+      if (fs.existsSync(patchPath) && fs.statSync(patchPath).size > 0) {
+        steps.patch = await run(`git apply "${patchPath}"`, project.path, 2 * 60 * 1000);
+        if (steps.patch.code !== 0) return fail('patch', steps.patch);
+      } else {
+        steps.patch = { code: 0, skipped: true, stdout: 'No saved patch; skipped.' };
+      }
+
+      steps.build = await run(buildCommand, project.path, 10 * 60 * 1000);
+      if (steps.build.code !== 0) return fail('build', steps.build);
+      steps.restart = await run(restartCommand, project.path, 2 * 60 * 1000);
+      if (steps.restart.code !== 0) return fail('restart', steps.restart);
+
+      const status = await run('git status --porcelain', project.path);
+      if (status.code !== 0) return fail('git-status', status);
+      if (!status.stdout.trim()) {
+        steps.git = { code: 0, skipped: true, stdout: 'Working tree clean; nothing to commit or push.' };
+      } else {
+        steps.gitAdd = await run('git add -A', project.path);
+        if (steps.gitAdd.code !== 0) return fail('git-add', steps.gitAdd);
+        const safeMessage = commitMessage.replace(/[\\"$`]/g, '\\$&');
+        steps.gitCommit = await run(`git commit -m "${safeMessage}"`, project.path);
+        if (steps.gitCommit.code !== 0) return fail('git-commit', steps.gitCommit);
+        steps.gitPush = await run('git push', project.path, 2 * 60 * 1000);
+        if (steps.gitPush.code !== 0) return fail('git-push', steps.gitPush);
+        steps.git = { code: 0, stdout: 'Changes committed and pushed.' };
+      }
+
+      logSession(projectId, { action: 'deploy', success: true, stage: 'complete', durationMs: Date.now() - startedAt });
+      return json(res, 200, { success: true, stage: 'complete', steps, durationMs: Date.now() - startedAt });
+    } catch (e) {
+      return fail('server', { code: 1, error: e.message });
     } finally {
       activeDeployments.delete(projectId);
     }

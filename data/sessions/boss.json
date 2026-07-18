@@ -1,5 +1,19 @@
 [
   {
+    "timestamp": "2026-07-18T03:18:33.027Z",
+    "action": "commit",
+    "message": "Add OAuth scopes and improve invoice creation flow",
+    "success": true
+  },
+  {
+    "timestamp": "2026-07-18T03:15:40.634Z",
+    "action": "rebuild_restart",
+    "success": true,
+    "stage": "complete",
+    "exitCode": 0,
+    "durationMs": 74723
+  },
+  {
     "timestamp": "2026-07-17T03:59:05.261Z",
     "action": "commit",
     "message": "Add agenda workspace panel to tasks page",

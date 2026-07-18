@@ -1,5 +1,11 @@
 [
   {
+    "timestamp": "2026-07-18T03:18:00.730Z",
+    "action": "commit",
+    "message": "Add database pragmas and debounce lastUsedAt writes",
+    "success": true
+  },
+  {
     "timestamp": "2026-07-13T01:10:37.472Z",
     "action": "fetch",
     "success": true

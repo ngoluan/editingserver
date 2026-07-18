@@ -594,6 +594,14 @@ async function handleApi(method, url, req, res) {
     return json(res, 201, enrichProject(project));
   }
 
+  // DELETE /api/projects — remove all dashboard project registrations only
+  if (method === 'DELETE' && parts.length === 2 && parts[0] === 'api' && parts[1] === 'projects') {
+    const data = loadProjects();
+    const removed = data.projects.length;
+    saveProjects({ projects: [] });
+    return json(res, 200, { success: true, removed });
+  }
+
   // DELETE /api/projects/:id
   if (method === 'DELETE' && parts.length === 3 && parts[0] === 'api' && parts[1] === 'projects') {
     const data = loadProjects();

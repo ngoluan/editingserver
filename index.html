@@ -34,6 +34,8 @@ body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 .btn-primary:hover { filter: brightness(1.1); }
 .btn-green { background: var(--green); border-color: var(--green); color: #fff; }
 .btn-green:hover { filter: brightness(1.1); }
+.btn-danger { background: var(--red); border-color: var(--red); color: #fff; }
+.btn-danger:hover { filter: brightness(1.1); }
 .btn-sm { padding: 4px 10px; font-size: 12px; }
 .btn-icon { padding: 5px 8px; font-size: 14px; line-height: 1; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -315,7 +317,10 @@ pre.output {
 
 <div class="header">
   <h1><small class="brand-kicker">Workspace control</small>opencode <span>dashboard</span></h1>
-  <button class="btn btn-primary" onclick="openAddModal()">+ Add Project</button>
+  <div style="display:flex;gap:8px">
+    <button class="btn btn-danger" onclick="clearAllProjects()">Clear projects</button>
+    <button class="btn btn-primary" onclick="openAddModal()">+ Add Project</button>
+  </div>
 </div>
 
 <div class="dashboard-summary" id="dashboard-summary"></div>
@@ -1561,6 +1566,19 @@ async function deleteProject(id, name) {
   if (!confirm(`Delete project "${name}"? This cannot be undone.`)) return;
   await api('DELETE', `/api/projects/${id}`);
   if (state.activeProject?.id === id) closeDetail();
+  await loadProjects();
+}
+
+async function clearAllProjects() {
+  const count = state.projects.length;
+  if (!count) return;
+  if (!confirm(`Remove all ${count} project registrations from this dashboard?\n\nYour project folders, code, Git repositories, and deployment files will not be deleted.`)) return;
+  const data = await api('DELETE', '/api/projects');
+  if (data.error) {
+    alert(data.error);
+    return;
+  }
+  closeDetail();
   await loadProjects();
 }
 

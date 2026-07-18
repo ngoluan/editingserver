@@ -2,5 +2,7 @@ node_modules/
 server.log
 *_combined-source.txt
 .env
+projects.local.json
+runtime/
 combined.txt
 patches/

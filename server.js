@@ -16,9 +16,14 @@ try {
 
 const PORT = process.env.PORT || 8765;
 const DIR = __dirname;
-const DATA_DIR = path.join(DIR, 'data');
-const SESSIONS_DIR = path.join(DATA_DIR, 'sessions');
-const CONFIG_FILE = path.join(DIR, 'projects.json');
+// Activity logs are also machine-local; keeping them in runtime prevents Git
+// pulls from conflicting with another server's deployment history.
+const RUNTIME_DIR = path.join(DIR, 'runtime');
+const SESSIONS_DIR = path.join(RUNTIME_DIR, 'sessions');
+// Runtime project settings are server-specific. Keep them outside Git so a pull
+// never replaces another server's project paths or deployment commands.
+const LOCAL_CONFIG_FILE = path.join(DIR, 'projects.local.json');
+const LEGACY_CONFIG_FILE = path.join(DIR, 'projects.json');
 const activeDeployments = new Set();
 
 const OPENCODE_SERVER_URL = process.env.OPENCODE_SERVER_URL || 'http://localhost:4096';
@@ -38,7 +43,7 @@ const MIME = {
 };
 
 function saveProjects(data) {
-  writeJsonSafe(CONFIG_FILE, data);
+  writeJsonSafe(LOCAL_CONFIG_FILE, data);
 }
 
 function writeJsonSafe(filePath, data) {
@@ -50,8 +55,19 @@ function writeJsonSafe(filePath, data) {
 
 function loadProjects() {
   try {
-    return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
-  } catch { return { projects: [] }; }
+    return JSON.parse(fs.readFileSync(LOCAL_CONFIG_FILE, 'utf8'));
+  } catch {}
+
+  // One-time migration for existing installations. Once this has run, all
+  // subsequent writes use projects.local.json and are ignored by Git.
+  try {
+    const legacy = JSON.parse(fs.readFileSync(LEGACY_CONFIG_FILE, 'utf8'));
+    if (Array.isArray(legacy.projects)) {
+      saveProjects(legacy);
+      return legacy;
+    }
+  } catch {}
+  return { projects: [] };
 }
 
 function findProject(id) {
